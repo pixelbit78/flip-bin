@@ -202,7 +202,7 @@ packages:
     source: hosted
     version: "2.35.0"
   drift_dev:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: drift_dev
       sha256: fbad5c1e3a73820cdb1f32161eb2f40bb5e5f03c0c1a3d236595725aec7efc6d
