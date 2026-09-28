@@ -192,3 +192,9 @@ else if (typeof define === 'function' && define['amd']) {
 else if (typeof exports === 'object'){
     exports["Module"] = initSqlJs;
 }
+if (typeof window !== 'undefined') {
+    window.initSqlJs = initSqlJs;
+}
+if (typeof globalThis !== 'undefined') {
+    globalThis.initSqlJs = initSqlJs;
+}

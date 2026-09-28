@@ -13,7 +13,32 @@
   <title>FlipBin</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Unregister old service workers to ensure fresh assets in development -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for (var r of registrations) {
+          r.unregister();
+        }
+      });
+    }
+  </script>
+
+  <!-- Load SQLite WebAssembly for Drift Database -->
   <script src="sql-wasm.js"></script>
+  <script>
+    if (typeof initSqlJs === 'undefined') {
+      console.warn('Local sql-wasm.js not loaded, attempting CDN fallback...');
+      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"><\/script>');
+    }
+  </script>
+  <script>
+    if (typeof initSqlJs !== 'undefined') {
+      window.initSqlJs = initSqlJs;
+      globalThis.initSqlJs = initSqlJs;
+    }
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

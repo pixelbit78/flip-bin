@@ -36,8 +36,11 @@ void main() async {
     };
 
     request.response.headers.contentType = contentType;
-    // Add CORS headers for local testing
+    // Add CORS and disable caching headers for local testing
     request.response.headers.add('Access-Control-Allow-Origin', '*');
+    request.response.headers.add('Cache-Control', 'no-cache, no-store, must-revalidate');
+    request.response.headers.add('Pragma', 'no-cache');
+    request.response.headers.add('Expires', '0');
     await request.response.addStream(file.openRead());
     await request.response.close();
   }

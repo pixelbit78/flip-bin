@@ -4,11 +4,31 @@ import 'package:intl/intl.dart';
 import 'package:flipbin/providers/sync_provider.dart';
 
 /// Settings screen for managing Google Sheets synchronization and cloud backup.
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  late TextEditingController _clientIdController;
+  bool _showClientIdConfig = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _clientIdController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _clientIdController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final syncState = ref.watch(syncProvider);
     final syncNotifier = ref.read(syncProvider.notifier);
     final theme = Theme.of(context);
@@ -105,15 +125,91 @@ class SettingsScreen extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'Sign in with your Google account to enable two-way spreadsheet backup to Google Sheets.',
+                            'Sign in with your Google account to enable spreadsheet backup to Google Sheets.',
                             style: TextStyle(color: Colors.white70, fontSize: 13),
                           ),
-                          const SizedBox(height: 12),
-                          ElevatedButton.icon(
-                            onPressed: () => syncNotifier.signIn(),
-                            icon: const Icon(Icons.login),
-                            label: const Text('Sign In with Google'),
+                          const SizedBox(height: 14),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              ElevatedButton.icon(
+                                onPressed: () => syncNotifier.signIn(),
+                                icon: const Icon(Icons.login),
+                                label: const Text('Sign In with Google'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () => syncNotifier.signInDemo(),
+                                icon: const Icon(Icons.account_circle),
+                                label: const Text('Use Demo Account'),
+                              ),
+                            ],
                           ),
+                          const SizedBox(height: 12),
+                          InkWell(
+                            onTap: () => setState(() => _showClientIdConfig = !_showClientIdConfig),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _showClientIdConfig ? Icons.expand_less : Icons.expand_more,
+                                  size: 18,
+                                  color: Colors.white54,
+                                ),
+                                const SizedBox(width: 4),
+                                const Text(
+                                  'OAuth Client ID Configuration (Web)',
+                                  style: TextStyle(fontSize: 12, color: Colors.white54),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_showClientIdConfig) ...[
+                            const SizedBox(height: 10),
+                            const Text(
+                              'On Web, Google Sign-In requires an OAuth 2.0 Client ID from Google Cloud Console with http://localhost:8080 authorized as a JavaScript origin.',
+                              style: TextStyle(fontSize: 11, color: Colors.white38),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _clientIdController,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Enter Web Client ID (.apps.googleusercontent.com)',
+                                      isDense: true,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton(
+                                  onPressed: () {
+                                    final id = _clientIdController.text.trim();
+                                    syncNotifier.setClientId(id);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Client ID saved!')),
+                                    );
+                                  },
+                                  child: const Text('Save'),
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (syncState.error != null) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                              ),
+                              child: Text(
+                                syncState.error!,
+                                style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
               ),
@@ -151,14 +247,6 @@ class SettingsScreen extends ConsumerWidget {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    if (syncState.error != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12.0),
-                        child: Text(
-                          syncState.error!,
-                          style: const TextStyle(color: Colors.redAccent, fontSize: 13),
-                        ),
-                      ),
                     ElevatedButton.icon(
                       onPressed: syncState.isSyncing || syncState.account == null
                           ? null

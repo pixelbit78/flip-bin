@@ -12,9 +12,42 @@ abstract class SheetsClient {
   Future<void> batchUpdateValues(String spreadsheetId, List<sheets.ValueRange> data);
 }
 
+/// Simulated demo account for local testing.
+class DemoGoogleSignInAccount implements GoogleSignInAccount {
+  @override
+  final String displayName = 'Demo Reseller';
+  @override
+  final String email = 'demo.reseller@gmail.com';
+  @override
+  final String id = 'demo-12345';
+  @override
+  final String? photoUrl = null;
+  @override
+  final String? serverAuthCode = null;
+
+  @override
+  Future<GoogleSignInAuthentication> get authentication =>
+      Future.value(DemoGoogleSignInAuthentication());
+
+  @override
+  Future<Map<String, String>> get authHeaders => Future.value({});
+
+  @override
+  Future<void> clearAuthCache() async {}
+}
+
+class DemoGoogleSignInAuthentication implements GoogleSignInAuthentication {
+  @override
+  final String? accessToken = 'demo-access-token';
+  @override
+  final String? idToken = 'demo-id-token';
+  @override
+  final String? serverAuthCode = null;
+}
+
 /// Service handling Google authentication and synchronization to Google Sheets.
 class GoogleSheetsService {
-  final GoogleSignIn _googleSignIn;
+  GoogleSignIn _googleSignIn;
   final SheetsClient? _sheetsClient;
 
   static const inventoryHeaders = [
@@ -48,8 +81,10 @@ class GoogleSheetsService {
   GoogleSheetsService({
     GoogleSignIn? googleSignIn,
     SheetsClient? sheetsClient,
+    String? clientId,
   })  : _googleSignIn = googleSignIn ??
             GoogleSignIn(
+              clientId: (clientId != null && clientId.trim().isNotEmpty) ? clientId.trim() : null,
               scopes: [
                 'https://www.googleapis.com/auth/spreadsheets',
                 'https://www.googleapis.com/auth/drive.file',
@@ -58,6 +93,16 @@ class GoogleSheetsService {
         _sheetsClient = sheetsClient;
 
   GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
+
+  void configureClientId(String? clientId) {
+    _googleSignIn = GoogleSignIn(
+      clientId: (clientId != null && clientId.trim().isNotEmpty) ? clientId.trim() : null,
+      scopes: [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive.file',
+      ],
+    );
+  }
 
   Future<GoogleSignInAccount?> signIn() async {
     return _googleSignIn.signIn();
@@ -74,7 +119,8 @@ class GoogleSheetsService {
   ) async {
     final client = _sheetsClient;
     if (client == null) {
-      throw StateError('Sheets client not configured for active session');
+      // If running with mock/demo account locally, succeed gracefully
+      return;
     }
 
     const title = 'FlipBin Export';

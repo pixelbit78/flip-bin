@@ -9,12 +9,14 @@ class SyncState {
   final bool isSyncing;
   final DateTime? lastSyncedAt;
   final String? error;
+  final String? clientId;
 
   const SyncState({
     this.account,
     this.isSyncing = false,
     this.lastSyncedAt,
     this.error,
+    this.clientId,
   });
 
   SyncState copyWith({
@@ -22,6 +24,7 @@ class SyncState {
     bool? isSyncing,
     DateTime? lastSyncedAt,
     String? error,
+    String? clientId,
     bool clearError = false,
     bool clearAccount = false,
   }) {
@@ -30,6 +33,7 @@ class SyncState {
       isSyncing: isSyncing ?? this.isSyncing,
       lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
       error: clearError ? null : (error ?? this.error),
+      clientId: clientId ?? this.clientId,
     );
   }
 }
@@ -46,13 +50,28 @@ class SyncNotifier extends StateNotifier<SyncState> {
 
   SyncNotifier(this._sheetsService, this._ref) : super(const SyncState());
 
+  void setClientId(String clientId) {
+    _sheetsService.configureClientId(clientId);
+    state = state.copyWith(clientId: clientId, clearError: true);
+  }
+
   Future<void> signIn() async {
     try {
       final account = await _sheetsService.signIn();
       state = state.copyWith(account: account, clearError: true);
     } catch (e) {
-      state = state.copyWith(error: 'Sign in failed: $e');
+      state = state.copyWith(
+        error:
+            'Google Sign-In failed: $e\n\nTip: On Web, Google Sign-In requires an OAuth Client ID from Google Cloud Console with http://localhost:8080 authorized.',
+      );
     }
+  }
+
+  void signInDemo() {
+    state = state.copyWith(
+      account: DemoGoogleSignInAccount(),
+      clearError: true,
+    );
   }
 
   Future<void> signOut() async {
