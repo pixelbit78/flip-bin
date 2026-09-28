@@ -10,6 +10,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FlipBin">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- Allow camera access for barcode scanning (mobile_scanner / getUserMedia) -->
+  <meta http-equiv="Permissions-Policy" content="camera=(self), microphone=()">
   <title>FlipBin</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
@@ -25,6 +27,9 @@
       });
     }
   </script>
+
+  <!-- ZXing barcode library required by mobile_scanner on Flutter web (v4.x) -->
+  <script src="https://unpkg.com/@zxing/library@0.19.1" type="application/javascript"></script>
 
   <!-- Load SQLite WebAssembly for Drift Database -->
   <script src="sql-wasm.js"></script>

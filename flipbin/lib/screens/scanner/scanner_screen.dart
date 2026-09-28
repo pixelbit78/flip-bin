@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -14,16 +15,50 @@ class ScannerScreen extends ConsumerStatefulWidget {
 
 class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   final TextEditingController _manualController = TextEditingController();
-  final MobileScannerController _scannerController = MobileScannerController(
+
+  /// On web, browsers often require a user gesture before getUserMedia.
+  /// Start with autoStart:false and prompt with an Enable Camera button.
+  late final MobileScannerController _scannerController =
+      MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     facing: CameraFacing.back,
+    autoStart: !kIsWeb,
   );
+
+  bool _cameraStarted = !kIsWeb;
+  bool _startingCamera = false;
+  String? _cameraStartError;
 
   @override
   void dispose() {
     _manualController.dispose();
-    _scannerController.dispose();
+    // MobileScanner.dispose() also disposes a provided controller when mounted.
+    if (!_cameraStarted) {
+      _scannerController.dispose();
+    }
     super.dispose();
+  }
+
+  Future<void> _enableCamera() async {
+    if (_startingCamera || _cameraStarted) return;
+    setState(() {
+      _startingCamera = true;
+      _cameraStartError = null;
+    });
+    try {
+      await _scannerController.start();
+      if (!mounted) return;
+      setState(() {
+        _cameraStarted = true;
+        _startingCamera = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _startingCamera = false;
+        _cameraStartError = e.toString();
+      });
+    }
   }
 
   void _onManualLookup() {
@@ -31,6 +66,147 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     if (upc.isNotEmpty) {
       ref.read(scannerProvider.notifier).onBarcodeDetected(upc);
     }
+  }
+
+  Widget _buildCameraPlaceholder({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    Widget? action,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(24.0),
+      color: const Color(0xFF1E222B),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 48, color: Colors.orangeAccent),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (action != null) ...[
+              const SizedBox(height: 16),
+              action,
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildViewfinder(BuildContext context) {
+    if (kIsWeb && !_cameraStarted) {
+      return _buildCameraPlaceholder(
+        icon: Icons.photo_camera,
+        title: 'Camera ready',
+        subtitle:
+            'Tap Enable Camera to grant permission and start scanning barcodes. You can also enter a UPC manually below.',
+        action: ElevatedButton.icon(
+          onPressed: _startingCamera ? null : _enableCamera,
+          icon: _startingCamera
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.videocam),
+          label: Text(_startingCamera ? 'Starting…' : 'Enable Camera'),
+        ),
+      );
+    }
+
+    if (_cameraStartError != null) {
+      return _buildCameraPlaceholder(
+        icon: Icons.videocam_off,
+        title: 'Camera Unavailable or Permission Denied',
+        subtitle:
+            'Please grant camera permission in your browser or enter the barcode manually below.\n$_cameraStartError',
+        action: ElevatedButton.icon(
+          onPressed: () {
+            setState(() {
+              _cameraStarted = false;
+              _cameraStartError = null;
+            });
+            _enableCamera();
+          },
+          icon: const Icon(Icons.refresh),
+          label: const Text('Try Again'),
+        ),
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        MobileScanner(
+          controller: _scannerController,
+          onDetect: (capture) {
+            final barcodes = capture.barcodes;
+            for (final barcode in barcodes) {
+              final raw = barcode.rawValue;
+              if (raw != null && raw.isNotEmpty) {
+                ref.read(scannerProvider.notifier).onBarcodeDetected(raw);
+                break;
+              }
+            }
+          },
+          errorBuilder: (context, error, child) {
+            return _buildCameraPlaceholder(
+              icon: Icons.videocam_off,
+              title: 'Camera Unavailable or Permission Denied',
+              subtitle:
+                  'Please grant camera permission in your browser or enter the barcode manually below.',
+              action: ElevatedButton.icon(
+                onPressed: () async {
+                  try {
+                    await _scannerController.start();
+                    if (mounted) {
+                      setState(() => _cameraStartError = null);
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      setState(() => _cameraStartError = e.toString());
+                    }
+                  }
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Try Again'),
+              ),
+            );
+          },
+        ),
+        // Reticle / Corner brackets overlay
+        Center(
+          child: Container(
+            width: 220,
+            height: 140,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary,
+                width: 2.5,
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -43,11 +219,15 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.flash_on),
-            onPressed: () => _scannerController.toggleTorch(),
+            onPressed: _cameraStarted
+                ? () => _scannerController.toggleTorch()
+                : null,
           ),
           IconButton(
             icon: const Icon(Icons.flip_camera_ios),
-            onPressed: () => _scannerController.switchCamera(),
+            onPressed: _cameraStarted
+                ? () => _scannerController.switchCamera()
+                : null,
           ),
         ],
       ),
@@ -63,74 +243,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                 color: Colors.black,
               ),
               clipBehavior: Clip.antiAlias,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  MobileScanner(
-                    controller: _scannerController,
-                    onDetect: (capture) {
-                      final barcodes = capture.barcodes;
-                      for (final barcode in barcodes) {
-                        final raw = barcode.rawValue;
-                        if (raw != null && raw.isNotEmpty) {
-                          ref.read(scannerProvider.notifier).onBarcodeDetected(raw);
-                          break;
-                        }
-                      }
-                    },
-                    errorBuilder: (context, error, child) {
-                      return Container(
-                        padding: const EdgeInsets.all(24.0),
-                        color: const Color(0xFF1E222B),
-                        child: const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.videocam_off,
-                                size: 48,
-                                color: Colors.orangeAccent,
-                              ),
-                              SizedBox(height: 12),
-                              Text(
-                                'Camera Unavailable or Permission Denied',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Please grant camera permission in your browser or enter the barcode manually below.',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 13,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  // Reticle / Corner brackets overlay
-                  Center(
-                    child: Container(
-                      width: 220,
-                      height: 140,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.primary,
-                          width: 2.5,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              child: _buildViewfinder(context),
             ),
 
             // Manual UPC entry
@@ -236,7 +349,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    scanState.result!.productName ?? 'Unknown Product',
+                                    scanState.result!.productName ??
+                                        'Unknown Product',
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 16,
@@ -308,7 +422,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      scanState.error ?? 'No product details found for UPC: ${scanState.rawBarcode}',
+                      scanState.error ??
+                          'No product details found for UPC: ${scanState.rawBarcode}',
                       style: const TextStyle(color: Colors.white70),
                       textAlign: TextAlign.center,
                     ),
