@@ -130,21 +130,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             style: TextStyle(color: Colors.white70, fontSize: 13),
                           ),
                           const SizedBox(height: 14),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              ElevatedButton.icon(
-                                onPressed: () => syncNotifier.signIn(),
-                                icon: const Icon(Icons.login),
-                                label: const Text('Sign In with Google'),
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: () => syncNotifier.signInDemo(),
-                                icon: const Icon(Icons.account_circle),
-                                label: const Text('Use Demo Account'),
-                              ),
-                            ],
+                          ElevatedButton.icon(
+                            onPressed: () => syncNotifier.signIn(),
+                            icon: const Icon(Icons.login),
+                            label: const Text('Sign In with Google'),
                           ),
                           const SizedBox(height: 12),
                           InkWell(
