@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flipbin/providers/sync_provider.dart';
 import 'package:flipbin/services/google_sheets_service.dart';
 
@@ -236,6 +237,56 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                       ],
                     ),
+                    if (syncState.spreadsheetId != null) ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.table_chart, color: Colors.greenAccent, size: 22),
+                                const SizedBox(width: 8),
+                                const Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'FlipBin Export',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      Text(
+                                        'Saved in Google Drive • Tabs: Inventory, Expenses',
+                                        style: TextStyle(fontSize: 11, color: Colors.white70),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                FilledButton.tonalIcon(
+                                  onPressed: () {
+                                    final url = Uri.parse(
+                                      'https://docs.google.com/spreadsheets/d/${syncState.spreadsheetId}/edit',
+                                    );
+                                    launchUrl(url, mode: LaunchMode.externalApplication);
+                                  },
+                                  icon: const Icon(Icons.open_in_new, size: 16),
+                                  label: const Text('Open Sheet'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       onPressed: syncState.isSyncing || syncState.account == null
@@ -250,6 +301,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           : const Icon(Icons.sync),
                       label: Text(syncState.isSyncing ? 'Syncing...' : 'Sync Now to Sheets'),
                     ),
+                    if (syncState.account == null) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Sign in above to enable Google Sheets backup.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, color: Colors.white38),
+                      ),
+                    ],
+                    if (syncState.error != null && syncState.account != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                        ),
+                        child: Text(
+                          syncState.error!,
+                          style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

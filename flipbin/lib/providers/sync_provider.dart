@@ -10,6 +10,7 @@ class SyncState {
   final DateTime? lastSyncedAt;
   final String? error;
   final String? clientId;
+  final String? spreadsheetId;
 
   const SyncState({
     this.account,
@@ -17,6 +18,7 @@ class SyncState {
     this.lastSyncedAt,
     this.error,
     this.clientId,
+    this.spreadsheetId,
   });
 
   SyncState copyWith({
@@ -25,8 +27,10 @@ class SyncState {
     DateTime? lastSyncedAt,
     String? error,
     String? clientId,
+    String? spreadsheetId,
     bool clearError = false,
     bool clearAccount = false,
+    bool clearSpreadsheetId = false,
   }) {
     return SyncState(
       account: clearAccount ? null : (account ?? this.account),
@@ -34,6 +38,8 @@ class SyncState {
       lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
       error: clearError ? null : (error ?? this.error),
       clientId: clientId ?? this.clientId,
+      spreadsheetId:
+          clearSpreadsheetId ? null : (spreadsheetId ?? this.spreadsheetId),
     );
   }
 }
@@ -77,7 +83,11 @@ class SyncNotifier extends StateNotifier<SyncState> {
   Future<void> signOut() async {
     try {
       await _sheetsService.signOut();
-      state = state.copyWith(clearAccount: true, clearError: true);
+      state = state.copyWith(
+        clearAccount: true,
+        clearError: true,
+        clearSpreadsheetId: true,
+      );
     } catch (e) {
       state = state.copyWith(error: 'Sign out failed: $e');
     }
@@ -92,11 +102,16 @@ class SyncNotifier extends StateNotifier<SyncState> {
       final items = await db.inventoryItemsDao.getAllForExport();
       final expenses = await db.expensesDao.getAllForExport();
 
-      await _sheetsService.syncToSheets(items, expenses);
+      final sheetId = await _sheetsService.syncToSheets(
+        items,
+        expenses,
+        existingSpreadsheetId: state.spreadsheetId,
+      );
 
       state = state.copyWith(
         isSyncing: false,
         lastSyncedAt: DateTime.now(),
+        spreadsheetId: sheetId,
         clearError: true,
       );
     } catch (e) {
