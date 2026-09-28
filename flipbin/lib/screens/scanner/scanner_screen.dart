@@ -20,28 +20,54 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
 
   /// On web, browsers require a user gesture before getUserMedia.
   /// Keep autoStart:false on web and start from the Enable Camera button —
-  /// but only AFTER MobileScanner is mounted (see [_enableCamera]).
+  /// but only AFTER MobileScanner is mounted (controller.attach).
   late final MobileScannerController _scannerController =
       MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
+    // unrestricted = lowest latency to first decode on web (BarcodeDetector /
+    // zxing-wasm). noDuplicates still filters repeats via our provider gen.
+    detectionSpeed: DetectionSpeed.unrestricted,
     facing: CameraFacing.back,
     autoStart: !kIsWeb,
+    formats: const [
+      BarcodeFormat.upcA,
+      BarcodeFormat.upcE,
+      BarcodeFormat.ean8,
+      BarcodeFormat.ean13,
+      BarcodeFormat.code128,
+      BarcodeFormat.code39,
+      BarcodeFormat.code93,
+      BarcodeFormat.qrCode,
+    ],
   );
 
-  /// Direct subscription to the controller barcode stream.
-  /// mobile_scanner 4.x with autoStart:false has gaps where widget [onDetect]
-  /// alone may never fire; listening here is the reliable path.
+  /// Direct subscription to the controller barcode stream (recommended path
+  /// in mobile_scanner 7.x). Handles both captures and stream errors.
   StreamSubscription<BarcodeCapture>? _barcodeSubscription;
 
   bool _cameraStarted = !kIsWeb;
   bool _startingCamera = false;
   String? _cameraStartError;
 
+  /// Debounce identical codes so a held barcode does not spam lookups.
+  String? _lastHandledCode;
+  DateTime? _lastHandledAt;
+
   @override
   void initState() {
     super.initState();
-    _barcodeSubscription =
-        _scannerController.barcodes.listen(_handleBarcodeCapture);
+    if (kIsWeb) {
+      // Prefer native BarcodeDetector, fall back to zxing-wasm. Legacy
+      // ZXing-js (mobile_scanner 4.x) often failed to decode clear UPC-A.
+      MobileScannerPlatform.instance
+          .setWebBarcodeReader(WebBarcodeReader.auto);
+    }
+    _barcodeSubscription = _scannerController.barcodes.listen(
+      _handleBarcodeCapture,
+      onError: (Object error, StackTrace stack) {
+        debugPrint('Barcode stream error: $error');
+      },
+      cancelOnError: false,
+    );
   }
 
   @override
@@ -49,7 +75,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     _barcodeSubscription?.cancel();
     _barcodeSubscription = null;
     _manualController.dispose();
-    // MobileScanner is always in the tree and disposes the provided controller.
+    // We own the controller (autoStart may be false); dispose explicitly.
+    unawaited(_scannerController.dispose());
     super.dispose();
   }
 
@@ -57,10 +84,23 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     final barcodes = capture.barcodes;
     for (final barcode in barcodes) {
       final raw = barcode.rawValue;
-      if (raw != null && raw.isNotEmpty) {
-        ref.read(scannerProvider.notifier).onBarcodeDetected(raw);
-        break;
+      if (raw == null || raw.isEmpty) continue;
+
+      final now = DateTime.now();
+      if (_lastHandledCode == raw &&
+          _lastHandledAt != null &&
+          now.difference(_lastHandledAt!) < const Duration(seconds: 2)) {
+        return;
       }
+      _lastHandledCode = raw;
+      _lastHandledAt = now;
+
+      // Keep manual field in sync so Look Up and auto path share the same UPC.
+      if (_manualController.text != raw) {
+        _manualController.text = raw;
+      }
+      ref.read(scannerProvider.notifier).onBarcodeDetected(raw);
+      break;
     }
   }
 
@@ -71,8 +111,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
       _cameraStartError = null;
     });
     try {
-      // MobileScanner is already mounted (under the permission overlay).
-      // Starting only after attach is required for web decode + onDetect wiring.
+      // MobileScanner must already be mounted so controller.attach() ran;
+      // start() waits briefly for attach on mobile_scanner 7.x.
       await _scannerController.start();
       if (!mounted) return;
       setState(() {
@@ -91,6 +131,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   void _onManualLookup() {
     final upc = _manualController.text.trim();
     if (upc.isNotEmpty) {
+      // Same pipeline as auto-detect.
       ref.read(scannerProvider.notifier).onBarcodeDetected(upc);
     }
   }
@@ -138,21 +179,15 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   }
 
   Widget _buildViewfinder(BuildContext context) {
-    // Always keep MobileScanner mounted. Unmounting it disposes the shared
-    // controller (package behavior), which breaks retry / web decode wiring.
+    // Always keep MobileScanner mounted so attach() completes before start().
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Always mount MobileScanner (including on web before permission).
-        // Prior bug: start() ran while this widget was absent, so the web
-        // platform view / barcode stream listener never attached and decode
-        // never reached the app despite a live camera preview.
         MobileScanner(
           controller: _scannerController,
-          // Required by mobile_scanner 4.x; real handling is via barcodes stream
-          // in initState (reliable with autoStart:false).
-          onDetect: (_) {},
-          errorBuilder: (context, error, child) {
+          // Handling is via controller.barcodes subscription in initState.
+          fit: BoxFit.cover,
+          errorBuilder: (context, error) {
             return _buildCameraPlaceholder(
               icon: Icons.videocam_off,
               title: 'Camera Unavailable or Permission Denied',
@@ -166,7 +201,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
             );
           },
         ),
-        // Reticle / Corner brackets overlay (hidden under permission/error UI)
         if (_cameraStarted && _cameraStartError == null)
           Center(
             child: Container(
@@ -181,7 +215,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
               ),
             ),
           ),
-        // Start-failure overlay (keeps MobileScanner mounted underneath)
         if (_cameraStartError != null)
           _buildCameraPlaceholder(
             icon: Icons.videocam_off,
@@ -199,8 +232,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
               label: const Text('Try Again'),
             ),
           )
-        // Web: gate getUserMedia behind a user gesture, without delaying
-        // MobileScanner mount (overlay sits on top until start succeeds).
         else if (kIsWeb && !_cameraStarted)
           _buildCameraPlaceholder(
             icon: Icons.photo_camera,
@@ -248,7 +279,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // Viewfinder area
             Container(
               height: 280,
               margin: const EdgeInsets.all(16.0),
@@ -259,8 +289,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
               clipBehavior: Clip.antiAlias,
               child: _buildViewfinder(context),
             ),
-
-            // Manual UPC entry
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Row(
@@ -285,10 +313,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                 ],
               ),
             ),
-
             const SizedBox(height: 16),
-
-            // Loading / Result / Error state
             if (scanState.isLookingUp)
               const Padding(
                 padding: EdgeInsets.all(32.0),
@@ -397,9 +422,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                             Expanded(
                               child: ElevatedButton.icon(
                                 onPressed: () {
-                                  context.go(
-                                    '/inventory/new',
-                                  );
+                                  context.go('/inventory/new');
                                 },
                                 icon: const Icon(Icons.add_box),
                                 label: const Text('Add to Inventory'),
@@ -409,9 +432,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                             Expanded(
                               child: OutlinedButton.icon(
                                 onPressed: () {
-                                  context.go(
-                                    '/expenses/new',
-                                  );
+                                  context.go('/expenses/new');
                                 },
                                 icon: const Icon(Icons.post_add),
                                 label: const Text('Add to Expense'),

@@ -28,10 +28,9 @@
     }
   </script>
 
-  <!-- ZXing barcode library required by mobile_scanner on Flutter web (v4.x).
-       Use the explicit UMD build so window.ZXing is set even if an AMD loader
-       is present; the bare unpkg URL redirects here but can race oddly. -->
-  <script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js" type="application/javascript"></script>
+  <!-- mobile_scanner 7.x loads BarcodeDetector / zxing-wasm automatically.
+       Do NOT pin legacy @zxing/library here — that backend often failed to
+       decode clear UPC-A despite a live camera preview. -->
 
   <!-- Load SQLite WebAssembly for Drift Database -->
   <script src="sql-wasm.js"></script>

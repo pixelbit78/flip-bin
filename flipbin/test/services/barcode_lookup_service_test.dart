@@ -48,27 +48,38 @@ void main() {
     expect(result!.barcode, equals(barcode));
     expect(result.productName, equals('Cached Game'));
     expect(result.source, equals('Cache'));
-    verifyNever(() => mockDio.get(any(), options: any(named: 'options')));
+    verifyNever(() => mockDio.get(
+          any(),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+        ));
   });
 
-  test('tries UPC Database API on cache miss, caches result', () async {
+  test('tries UPCitemdb on cache miss, caches result', () async {
     const barcode = '008888511618';
     when(() => mockCacheDao.lookup(barcode)).thenAnswer((_) async => null);
     when(() => mockCacheDao.insertOrUpdate(any())).thenAnswer((_) async {});
 
     when(() => mockDio.get(
-      'https://api.upcdatabase.org/product/$barcode',
-      options: any(named: 'options'),
-    )).thenAnswer((_) async => Response(
-      requestOptions: RequestOptions(path: ''),
-      statusCode: 200,
-      data: {
-        'title': 'Borderlands 2',
-        'description': 'Action RPG game',
-        'images': ['https://example.com/borderlands.jpg'],
-        'category': 'Video Games',
-      },
-    ));
+          'https://api.upcitemdb.com/prod/trial/lookup',
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+        )).thenAnswer((_) async => Response(
+          requestOptions: RequestOptions(path: ''),
+          statusCode: 200,
+          data: {
+            'code': 'OK',
+            'total': 1,
+            'items': [
+              {
+                'title': 'Borderlands 2',
+                'description': 'Action RPG game',
+                'images': ['https://example.com/borderlands.jpg'],
+                'category': 'Video Games',
+              }
+            ],
+          },
+        ));
 
     final result = await service.lookup(barcode);
 
@@ -77,45 +88,95 @@ void main() {
     expect(result.productName, equals('Borderlands 2'));
     expect(result.description, equals('Action RPG game'));
     expect(result.imageUrl, equals('https://example.com/borderlands.jpg'));
-    expect(result.source, equals('UPC Database'));
+    expect(result.source, equals('UPCitemdb'));
 
     verify(() => mockCacheDao.insertOrUpdate(any())).called(1);
   });
 
-  test('falls through to Open Food Facts when UPC DB returns 404', () async {
+  test('falls through to Open Products Facts when UPCitemdb fails', () async {
+    const barcode = '0045496400101';
+    when(() => mockCacheDao.lookup(barcode)).thenAnswer((_) async => null);
+    when(() => mockCacheDao.insertOrUpdate(any())).thenAnswer((_) async {});
+
+    when(() => mockDio.get(
+          'https://api.upcitemdb.com/prod/trial/lookup',
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+        )).thenThrow(
+      DioException(
+        requestOptions: RequestOptions(path: ''),
+        type: DioExceptionType.connectionError,
+      ),
+    );
+
+    when(() => mockDio.get(
+          'https://world.openproductsfacts.org/api/v0/product/$barcode.json',
+          options: any(named: 'options'),
+        )).thenAnswer((_) async => Response(
+          requestOptions: RequestOptions(path: ''),
+          statusCode: 200,
+          data: {
+            'status': 1,
+            'product': {
+              'product_name': 'Animal Crossing',
+              'image_url': 'https://example.com/ac.jpg',
+              'categories': 'Video games',
+            },
+          },
+        ));
+
+    final result = await service.lookup(barcode);
+
+    expect(result, isNotNull);
+    expect(result!.productName, equals('Animal Crossing'));
+    expect(result.source, equals('Open Products Facts'));
+    verify(() => mockCacheDao.insertOrUpdate(any())).called(1);
+  });
+
+  test('falls through to Open Food Facts when prior APIs miss', () async {
     const barcode = '001111222233';
     when(() => mockCacheDao.lookup(barcode)).thenAnswer((_) async => null);
     when(() => mockCacheDao.insertOrUpdate(any())).thenAnswer((_) async {});
 
     when(() => mockDio.get(
-      'https://api.upcdatabase.org/product/$barcode',
-      options: any(named: 'options'),
-    )).thenThrow(
+          'https://api.upcitemdb.com/prod/trial/lookup',
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+        )).thenThrow(
       DioException(
         requestOptions: RequestOptions(path: ''),
+        type: DioExceptionType.badResponse,
         response: Response(
           requestOptions: RequestOptions(path: ''),
           statusCode: 404,
         ),
-        type: DioExceptionType.badResponse,
       ),
     );
 
     when(() => mockDio.get(
-      'https://world.openfoodfacts.org/api/v0/product/$barcode.json',
-      options: any(named: 'options'),
-    )).thenAnswer((_) async => Response(
-      requestOptions: RequestOptions(path: ''),
-      statusCode: 200,
-      data: {
-        'status': 1,
-        'product': {
-          'product_name': 'Energy Drink',
-          'image_url': 'https://example.com/drink.jpg',
-          'categories': 'Beverages',
-        },
-      },
-    ));
+          'https://world.openproductsfacts.org/api/v0/product/$barcode.json',
+          options: any(named: 'options'),
+        )).thenAnswer((_) async => Response(
+          requestOptions: RequestOptions(path: ''),
+          statusCode: 200,
+          data: {'status': 0},
+        ));
+
+    when(() => mockDio.get(
+          'https://world.openfoodfacts.org/api/v0/product/$barcode.json',
+          options: any(named: 'options'),
+        )).thenAnswer((_) async => Response(
+          requestOptions: RequestOptions(path: ''),
+          statusCode: 200,
+          data: {
+            'status': 1,
+            'product': {
+              'product_name': 'Energy Drink',
+              'image_url': 'https://example.com/drink.jpg',
+              'categories': 'Beverages',
+            },
+          },
+        ));
 
     final result = await service.lookup(barcode);
 
@@ -130,24 +191,31 @@ void main() {
     when(() => mockCacheDao.lookup(barcode)).thenAnswer((_) async => null);
 
     when(() => mockDio.get(
-      'https://api.upcdatabase.org/product/$barcode',
-      options: any(named: 'options'),
-    )).thenThrow(
+          any(),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+        )).thenThrow(
       DioException(
         requestOptions: RequestOptions(path: ''),
-        response: Response(requestOptions: RequestOptions(path: ''), statusCode: 404),
         type: DioExceptionType.badResponse,
+        response: Response(
+          requestOptions: RequestOptions(path: ''),
+          statusCode: 404,
+        ),
       ),
     );
 
     when(() => mockDio.get(
-      'https://world.openfoodfacts.org/api/v0/product/$barcode.json',
-      options: any(named: 'options'),
-    )).thenThrow(
+          any(),
+          options: any(named: 'options'),
+        )).thenThrow(
       DioException(
         requestOptions: RequestOptions(path: ''),
-        response: Response(requestOptions: RequestOptions(path: ''), statusCode: 404),
         type: DioExceptionType.badResponse,
+        response: Response(
+          requestOptions: RequestOptions(path: ''),
+          statusCode: 404,
+        ),
       ),
     );
 
@@ -160,9 +228,20 @@ void main() {
     when(() => mockCacheDao.lookup(barcode)).thenAnswer((_) async => null);
 
     when(() => mockDio.get(
-      any(),
-      options: any(named: 'options'),
-    )).thenThrow(
+          any(),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+        )).thenThrow(
+      DioException(
+        requestOptions: RequestOptions(path: ''),
+        type: DioExceptionType.connectionTimeout,
+      ),
+    );
+
+    when(() => mockDio.get(
+          any(),
+          options: any(named: 'options'),
+        )).thenThrow(
       DioException(
         requestOptions: RequestOptions(path: ''),
         type: DioExceptionType.connectionTimeout,
@@ -179,15 +258,18 @@ void main() {
     when(() => mockCacheDao.insertOrUpdate(any())).thenAnswer((_) async {});
 
     when(() => mockDio.get(
-      'https://api.upcdatabase.org/product/$barcode',
-      options: any(named: 'options'),
-    )).thenAnswer((_) async => Response(
-      requestOptions: RequestOptions(path: ''),
-      statusCode: 200,
-      data: {
-        'title': 'Test Item',
-      },
-    ));
+          'https://api.upcitemdb.com/prod/trial/lookup',
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+        )).thenAnswer((_) async => Response(
+          requestOptions: RequestOptions(path: ''),
+          statusCode: 200,
+          data: {
+            'items': [
+              {'title': 'Test Item'},
+            ],
+          },
+        ));
 
     final result = await service.lookup(barcode);
 
@@ -196,8 +278,9 @@ void main() {
     expect(result.barcode.startsWith('00'), isTrue);
 
     verify(() => mockDio.get(
-      'https://api.upcdatabase.org/product/008888511618',
-      options: any(named: 'options'),
-    )).called(1);
+          'https://api.upcitemdb.com/prod/trial/lookup',
+          queryParameters: {'upc': barcode},
+          options: any(named: 'options'),
+        )).called(1);
   });
 }
