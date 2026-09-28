@@ -8,6 +8,7 @@ import 'package:flipbin/screens/inventory/inventory_list_screen.dart';
 import 'package:flipbin/screens/inventory/item_detail_screen.dart';
 
 import 'package:flipbin/screens/scanner/scanner_screen.dart';
+import 'package:flipbin/screens/settings/settings_screen.dart';
 
 /// FlipBin router configuration with bottom navigation shell.
 class FlipBinRouter {
@@ -55,7 +56,7 @@ class FlipBinRouter {
           ),
           GoRoute(
             path: '/settings',
-            builder: (context, state) => const _PlaceholderScreen(name: 'Settings'),
+            builder: (context, state) => const SettingsScreen(),
           ),
         ],
       ),
@@ -119,22 +120,6 @@ class ScaffoldWithNavBar extends StatelessWidget {
             label: 'Settings',
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Placeholder screen used until real screens are implemented.
-class _PlaceholderScreen extends StatelessWidget {
-  const _PlaceholderScreen({required this.name});
-
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Text(name),
       ),
     );
   }
