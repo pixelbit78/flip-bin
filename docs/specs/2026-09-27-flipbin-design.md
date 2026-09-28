@@ -150,20 +150,16 @@ Scan UPC
   │
   ├─ Check local BarcodeCache
   │    ├─ HIT  → Use cached data (instant, free, offline)
-  │    └─ MISS → Try APIs in order:
+  │    └─ MISS → Network lookup:
   │
-  ├─ 1. UPC Database API
-  │      └─ Returns: name, description, image, category
-  │      └─ Free tier available, broad retail product coverage
+  ├─ 1. Same-origin /api/upc (Vercel) → UPCitemdb trial
+  │      └─ Returns: name, description, image, category, source
+  │      └─ Server-side proxy avoids browser CORS limits
   │
-  ├─ 2. Open Food Facts API
-  │      └─ Returns: name, image, category
-  │      └─ Free, community-driven
-  │
-  └─ 3. Manual entry fallback
+  └─ 2. Manual entry fallback (not found)
          └─ UPC string populates the barcode field
          └─ User types description manually
-         └─ Toast: "No product found for this barcode"
+         └─ UI: "No product details found for UPC: …"
 
 Result → Save to BarcodeCache → Pre-fill the Add Item/Expense form
 ```

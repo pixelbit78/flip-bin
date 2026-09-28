@@ -24,29 +24,50 @@ class BarcodeResult {
   });
 }
 
-/// Service to lookup product information by barcode using cascading APIs with local cache.
+/// Service to lookup product information by barcode with local cache.
 ///
-/// Cascade (matches product intent for FlipBin resellers):
+/// Cascade:
 /// 1. Local SQLite cache
-/// 2. UPCitemdb trial API (best retail coverage; may be blocked by CORS on web)
-/// 3. Open Products Facts (CORS-friendly; non-food / games / electronics)
-/// 4. Open Food Facts (CORS-friendly; groceries)
+/// 2. Same-origin `/api/upc` proxy (web) or direct UPCitemdb trial (non-web)
+/// 3. null / not found
+///
+/// Open Food Facts and Open Products Facts are intentionally not used.
 class BarcodeLookupService {
   final Dio _dio;
   final BarcodeCacheDao _cacheDao;
 
+  /// When true, call same-origin `/api/upc` (Vercel serverless proxy).
+  /// Defaults to [kIsWeb]. Override in tests.
+  final bool useSameOriginProxy;
+
+  /// Optional origin override for proxy URL (tests). Defaults to [Uri.base.origin].
+  final String? proxyOrigin;
+
   BarcodeLookupService({
     required Dio dio,
     required BarcodeCacheDao cacheDao,
+    bool? useSameOriginProxy,
+    this.proxyOrigin,
   })  : _dio = dio,
-        _cacheDao = cacheDao;
+        _cacheDao = cacheDao,
+        useSameOriginProxy = useSameOriginProxy ?? kIsWeb;
 
   Options get _timeoutOptions => Options(
         sendTimeout: const Duration(seconds: 5),
         receiveTimeout: const Duration(seconds: 5),
+        validateStatus: (status) =>
+            status != null && status < 500, // treat 404 as handled miss
       );
 
-  /// Looks up barcode in local cache, then cascading third-party APIs.
+  String get _proxyLookupUrl {
+    final origin = proxyOrigin ?? (kIsWeb ? Uri.base.origin : '');
+    if (origin.isEmpty) {
+      return '/api/upc';
+    }
+    return '$origin/api/upc';
+  }
+
+  /// Looks up barcode in local cache, then UPCitemdb (via proxy on web).
   Future<BarcodeResult?> lookup(String barcode) async {
     final cached = await _cacheDao.lookup(barcode);
     if (cached != null) {
@@ -60,35 +81,65 @@ class BarcodeLookupService {
       );
     }
 
-    // UPCitemdb trial API only allows CORS from upcitemdb.com, so browser
-    // calls from github.io fail. Skip on web; Open*Facts send ACAO: *.
-    if (!kIsWeb) {
-      final fromUpcItemDb = await _lookupUpcItemDb(barcode);
-      if (fromUpcItemDb != null) return fromUpcItemDb;
+    if (useSameOriginProxy) {
+      return _lookupViaProxy(barcode);
     }
-
-    final fromOpenProducts = await _lookupOpenFacts(
-      barcode,
-      baseUrl: 'https://world.openproductsfacts.org',
-      source: 'Open Products Facts',
-    );
-    if (fromOpenProducts != null) return fromOpenProducts;
-
-    final fromOpenFood = await _lookupOpenFacts(
-      barcode,
-      baseUrl: 'https://world.openfoodfacts.org',
-      source: 'Open Food Facts',
-    );
-    if (fromOpenFood != null) return fromOpenFood;
-
-    return null;
+    return _lookupUpcItemDb(barcode);
   }
 
+  /// Same-origin Vercel function: GET /api/upc?upc=...
+  Future<BarcodeResult?> _lookupViaProxy(String barcode) async {
+    try {
+      final response = await _dio.get(
+        _proxyLookupUrl,
+        queryParameters: {'upc': barcode},
+        options: _timeoutOptions,
+      );
+
+      if (response.statusCode != 200 || response.data is! Map) {
+        return null;
+      }
+
+      final map = Map<String, dynamic>.from(response.data as Map);
+      final productName = map['productName'] as String?;
+      if (productName == null || productName.trim().isEmpty) {
+        return null;
+      }
+
+      final description = map['description'] as String?;
+      final imageUrl = map['imageUrl'] as String?;
+      final category = map['category'] as String?;
+      final source = (map['source'] as String?) ?? 'UPCitemdb';
+
+      await _cacheDao.insertOrUpdate(
+        BarcodeCacheEntriesCompanion.insert(
+          barcode: barcode,
+          productName: Value(productName),
+          description: Value(description),
+          imageUrl: Value(imageUrl),
+          category: Value(category),
+          source: source,
+          fetchedAt: DateTime.now(),
+        ),
+      );
+
+      return BarcodeResult(
+        barcode: barcode,
+        productName: productName,
+        description: description,
+        imageUrl: imageUrl,
+        category: category,
+        source: source,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Direct UPCitemdb trial API (non-web / native). Browser CORS blocks this
+  /// from arbitrary origins; web uses [_lookupViaProxy] instead.
   Future<BarcodeResult?> _lookupUpcItemDb(String barcode) async {
     try {
-      // Trial endpoint documented by UPCitemdb. Note: browser CORS only allows
-      // upcitemdb.com origins, so this often fails on Flutter web and we fall
-      // through to Open*Facts (which send Access-Control-Allow-Origin: *).
       final response = await _dio.get(
         'https://api.upcitemdb.com/prod/trial/lookup',
         queryParameters: {'upc': barcode},
@@ -139,55 +190,6 @@ class BarcodeLookupService {
       return null;
     }
   }
-
-  Future<BarcodeResult?> _lookupOpenFacts(
-    String barcode, {
-    required String baseUrl,
-    required String source,
-  }) async {
-    try {
-      final response = await _dio.get(
-        '$baseUrl/api/v0/product/$barcode.json',
-        options: _timeoutOptions,
-      );
-
-      if (response.statusCode != 200 || response.data is! Map) return null;
-      final data = response.data as Map<String, dynamic>;
-      if (data['status'] != 1 || data['product'] is! Map) return null;
-
-      final product = Map<String, dynamic>.from(data['product'] as Map);
-      final name =
-          (product['product_name'] ?? product['generic_name']) as String?;
-      if (name == null || name.trim().isEmpty) return null;
-
-      final imageUrl =
-          (product['image_url'] ?? product['image_front_url']) as String?;
-      final category =
-          (product['categories'] ?? product['category']) as String?;
-
-      await _cacheDao.insertOrUpdate(
-        BarcodeCacheEntriesCompanion.insert(
-          barcode: barcode,
-          productName: Value(name),
-          description: const Value(null),
-          imageUrl: Value(imageUrl),
-          category: Value(category),
-          source: source,
-          fetchedAt: DateTime.now(),
-        ),
-      );
-
-      return BarcodeResult(
-        barcode: barcode,
-        productName: name,
-        imageUrl: imageUrl,
-        category: category,
-        source: source,
-      );
-    } catch (_) {
-      return null;
-    }
-  }
 }
 
 /// Riverpod provider for [BarcodeLookupService].
@@ -198,7 +200,6 @@ final barcodeLookupServiceProvider = Provider<BarcodeLookupService>((ref) {
       connectTimeout: const Duration(seconds: 5),
       receiveTimeout: const Duration(seconds: 5),
       headers: {
-        // Open*Facts ask for a descriptive User-Agent.
         'User-Agent': 'FlipBin/1.0 (https://github.com/pixelbit78/flip-bin)',
       },
     ),

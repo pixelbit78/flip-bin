@@ -1,0 +1,8 @@
+{
+  "name": "flip-bin",
+  "private": true,
+  "description": "FlipBin PWA + serverless UPC proxy on Vercel",
+  "engines": {
+    "node": ">=18"
+  }
+}

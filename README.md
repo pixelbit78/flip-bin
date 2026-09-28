@@ -4,14 +4,17 @@
 
 FlipBin is a mobile-first Progressive Web App (PWA) built with **Flutter Web**, **Riverpod**, and **Drift (SQLite)**. It replaces manual spreadsheet entry with an intuitive, barcode-scanning workflow designed for sourcing video games, media, and collectibles at thrift stores, garage sales, and clearance racks.
 
+**Canonical deploy:** [Vercel](https://vercel.com) (Hobby). GitHub Pages is retired as the production host.
+
 ---
 
 ## ✨ Features
 
 - 📷 **Instant Barcode Scanner & Cascading Lookup**
-  - Integrated camera viewfinder with real-time barcode detection (`mobile_scanner`).
-  - Cascading product metadata resolution: **Local SQLite Cache** ➔ **UPCitemdb API** ➔ **Open Food Facts API** ➔ **Manual Entry**.
-  - Manual barcode entry with instant auto-lookup for items without scannable barcodes.
+  - Integrated camera viewfinder with real-time barcode detection (`mobile_scanner` 7.x).
+  - Cascading product metadata resolution: **Local SQLite Cache** → **same-origin `/api/upc` (UPCitemdb via Vercel serverless)** → **Manual Entry**.
+  - Manual barcode entry with instant auto-lookup; camera detect and **Look Up** share one path.
+  - Shows looking-up / result / not-found states in the scanner UI.
 
 - 📦 **Inventory Management**
   - Category classification: *Game, DVD, Blu-ray, CD, Book, Other*.
@@ -42,6 +45,33 @@ FlipBin is a mobile-first Progressive Web App (PWA) built with **Flutter Web**, 
 
 ---
 
+## 🌐 Production (Vercel)
+
+| Item | Value |
+|------|--------|
+| **Production URL** | _Set after first `vercel --prod` deploy (e.g. `https://flip-bin.vercel.app` or your custom domain)_ |
+| **UPC proxy** | `GET /api/upc?upc=<digits>` → clean JSON `{ barcode, productName, description, imageUrl, category, source }` |
+| **Hosting** | Vercel Hobby — Flutter `build/web` static + Node serverless `api/upc` |
+
+### Barcode lookup cascade
+
+1. **Local SQLite cache** (Drift) — instant, offline.
+2. **Same-origin `/api/upc`** on web (Vercel function calls [UPCitemdb trial](https://api.upcitemdb.com/prod/trial/lookup) server-side to avoid CORS). Non-web builds may call UPCitemdb directly.
+3. **Not found** → scanner shows not-found UI; user can add manually.
+
+Open Food Facts / Open Products Facts are **not** used.
+
+### OAuth origins (required after cutover)
+
+Steve must add the **Vercel production origin** (and preview origins if used) in Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Web client → **Authorized JavaScript origins**:
+
+- Production: `https://<your-vercel-host>` (e.g. `https://flip-bin.vercel.app`)
+- Local: `http://localhost:8080`
+
+Without this, Google Sign-In / Sheets sync will fail on the Vercel host even though barcode lookup works.
+
+---
+
 ## 🛠️ Tech Stack
 
 | Component | Technology | Description |
@@ -49,10 +79,12 @@ FlipBin is a mobile-first Progressive Web App (PWA) built with **Flutter Web**, 
 | **Framework** | Flutter 3.x (Web PWA) | Cross-platform UI optimized for mobile and desktop web |
 | **State Management** | Flutter Riverpod 2.x | Reactive dependency injection and stream providers |
 | **Database** | Drift 2.x + SQLite (WASM) | Strongly typed local SQL database with reactive queries |
-| **Barcode Scanner** | `mobile_scanner` | Hardware-accelerated camera barcode detection |
+| **Barcode Scanner** | `mobile_scanner` 7.x | Hardware-accelerated camera barcode detection |
+| **UPC proxy** | Vercel Serverless (`api/upc`) | Server-side UPCitemdb trial lookup |
 | **Google APIs** | `google_sign_in` + `googleapis` | OAuth 2.0 authentication, Sheets API v4, Drive API v3 |
 | **HTTP Client** | `dio` + `http` | Resilient network requests with timeouts and error handling |
 | **Navigation** | `go_router` | Declarative, URL-driven routing |
+| **Deploy** | Vercel Hobby | Static Flutter web + `/api` functions |
 
 ---
 
@@ -60,23 +92,27 @@ FlipBin is a mobile-first Progressive Web App (PWA) built with **Flutter Web**, 
 
 ```text
 flip-bin/
+├── api/
+│   └── upc.js                         # Vercel serverless UPC proxy
+├── scripts/
+│   ├── vercel-install.sh              # Install Flutter + pub get (Vercel)
+│   └── vercel-build.sh                # flutter build web --release --base-href /
+├── vercel.json                        # SPA rewrites, outputDirectory, headers
+├── package.json                       # Node engine for serverless runtime
 ├── docs/
 │   ├── plans/
-│   │   └── 2026-09-27-flipbin.md        # Step-by-step TDD implementation plan
 │   └── specs/
-│       ├── 2026-09-27-flipbin-design.md # Full design and architectural specification
-│       └── flipbin-mockups/             # High-fidelity UI design mockups
-├── flipbin/                             # Main Flutter project
+├── flipbin/                           # Main Flutter project
 │   ├── lib/
-│   │   ├── database/                    # Drift SQLite schema, DAOs, and connection logic
-│   │   ├── models/                      # Enums and core data structures
-│   │   ├── providers/                   # Riverpod state providers and business logic
-│   │   ├── screens/                     # UI screens (Dashboard, Inventory, Expenses, Scanner, Settings)
-│   │   ├── services/                    # Barcode lookup, image storage, Google Sheets API
-│   │   └── widgets/                     # Reusable UI components and badges
-│   ├── test/                            # Comprehensive unit, DAO, and widget tests
-│   ├── tool/                            # Development utility scripts (e.g. serve.dart)
-│   └── web/                             # PWA configuration, manifest, icons, and sql-wasm binaries
+│   │   ├── database/
+│   │   ├── models/
+│   │   ├── providers/
+│   │   ├── screens/
+│   │   ├── services/                  # Barcode lookup, Sheets, images
+│   │   └── widgets/
+│   ├── test/
+│   ├── tool/                          # Local serve.dart (COOP-free static)
+│   └── web/
 └── README.md
 ```
 
@@ -88,10 +124,9 @@ flip-bin/
 
 - [Flutter SDK](https://docs.flutter.dev/get-started/install) (3.22+ recommended)
 - Google Chrome or Chromium-based browser
+- Optional: [Vercel CLI](https://vercel.com/docs/cli) for deploys (`npm i -g vercel`)
 
 ### 2. Setup & Installation
-
-Clone the repository and install dependencies:
 
 ```bash
 git clone https://github.com/pixelbit78/flip-bin.git
@@ -101,55 +136,73 @@ flutter pub get
 
 ### 3. Running Locally
 
-Because SQLite WebAssembly requires specific Cross-Origin headers (`COOP`/`COEP`), FlipBin includes a custom development server:
-
 ```bash
-# Start the local development server (serves on port 8080 with COOP/COEP enabled)
+# Build once, then serve with SPA fallback
+flutter build web --release --base-href /
 dart run tool/serve.dart
 ```
 
-Open your browser and navigate to:
+Open `http://localhost:8080`.
+
+To exercise the UPC proxy locally, run `vercel dev` from the **repo root** (requires Vercel login / link) so `/api/upc` is available beside the static build.
+
+### 4. Manual web build (if not using Vercel build)
+
+```bash
+cd flipbin
+flutter build web --release --base-href /
+# Output: flipbin/build/web  (deploy this directory; NOT /flip-bin/ base-href)
 ```
-http://localhost:8080
-```
+
+GitHub Pages `/flip-bin/` base-href is **retired**. Always use `--base-href /` for Vercel root hosting.
 
 ---
 
 ## 🔑 Google Cloud Setup (OAuth & Sheets Sync)
 
-To enable Google Sign-In and Google Sheets Export/Import:
-
 1. **Google Cloud Console**:
    - Create or select a project in the [Google Cloud Console](https://console.developers.google.com).
    - Configure the **OAuth Consent Screen** (User Type: External, Scopes: `spreadsheets`, `drive.file`, `userinfo.profile`, `userinfo.email`).
    - Create an **OAuth 2.0 Client ID** (Application type: *Web application*).
-   - Add `http://localhost:8080` to **Authorized JavaScript origins**.
+   - Add **Authorized JavaScript origins**:
+     - `http://localhost:8080`
+     - `https://<your-vercel-production-host>` ← **required after Vercel cutover**
 
 2. **Enable Required Google APIs**:
-   - [Google People API](https://console.developers.google.com/apis/api/people.googleapis.com/overview) (Required for profile details)
-   - [Google Sheets API](https://console.developers.google.com/apis/api/sheets.googleapis.com/overview) (Required for spreadsheet read/write)
-   - [Google Drive API](https://console.developers.google.com/apis/api/drive.googleapis.com/overview) (Required for locating and creating the backup file)
+   - [Google People API](https://console.developers.google.com/apis/api/people.googleapis.com/overview)
+   - [Google Sheets API](https://console.developers.google.com/apis/api/sheets.googleapis.com/overview)
+   - [Google Drive API](https://console.developers.google.com/apis/api/drive.googleapis.com/overview)
 
 3. **Configure in FlipBin**:
-   - In FlipBin, navigate to **Settings**.
-   - Expand **OAuth Client ID Configuration (Web)** and paste your Client ID (or use the pre-configured default).
+   - Settings → **OAuth Client ID Configuration (Web)** → paste Client ID (or use the pre-configured default).
    - Click **Sign In with Google**.
 
 ---
 
 ## 🧪 Testing
 
-FlipBin is built following strict Test-Driven Development (TDD) practices, with 100% test coverage across database queries, lookup failover, business logic, and UI widgets:
-
 ```bash
 cd flipbin
-
-# Run static analysis
 flutter analyze
-
-# Run the automated test suite (43 unit & widget tests)
 flutter test
 ```
+
+---
+
+## ☁️ Deploy (Vercel Hobby)
+
+From the **repository root** (linked to GitHub `pixelbit78/flip-bin`):
+
+```bash
+npm i -g vercel
+vercel login          # GitHub SSO recommended
+vercel link           # link to Hobby project / import GitHub repo
+vercel --prod         # production deploy
+```
+
+`vercel.json` runs `scripts/vercel-install.sh` (Flutter stable + `pub get`) and `scripts/vercel-build.sh` (`flutter build web --release --base-href /`), then publishes `flipbin/build/web` with `/api/upc` as a serverless function and SPA rewrites to `index.html`.
+
+**Alternative:** import the GitHub repo in the Vercel dashboard (Hobby) and deploy from `main`; root directory = repo root.
 
 ---
 

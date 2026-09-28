@@ -25,7 +25,12 @@ void main() {
   setUp(() {
     mockDio = MockDio();
     mockCacheDao = MockBarcodeCacheDao();
-    service = BarcodeLookupService(dio: mockDio, cacheDao: mockCacheDao);
+    // Default: non-web path (direct UPCitemdb), matching VM test environment.
+    service = BarcodeLookupService(
+      dio: mockDio,
+      cacheDao: mockCacheDao,
+      useSameOriginProxy: false,
+    );
   });
 
   test('returns cached result without hitting API', () async {
@@ -93,120 +98,90 @@ void main() {
     verify(() => mockCacheDao.insertOrUpdate(any())).called(1);
   });
 
-  test('falls through to Open Products Facts when UPCitemdb fails', () async {
-    const barcode = '0045496400101';
+  test('uses same-origin /api/upc proxy when enabled', () async {
+    const barcode = '008888511618';
+    const origin = 'https://flipbin.example';
+    service = BarcodeLookupService(
+      dio: mockDio,
+      cacheDao: mockCacheDao,
+      useSameOriginProxy: true,
+      proxyOrigin: origin,
+    );
+
     when(() => mockCacheDao.lookup(barcode)).thenAnswer((_) async => null);
     when(() => mockCacheDao.insertOrUpdate(any())).thenAnswer((_) async {});
 
     when(() => mockDio.get(
-          'https://api.upcitemdb.com/prod/trial/lookup',
+          '$origin/api/upc',
           queryParameters: any(named: 'queryParameters'),
-          options: any(named: 'options'),
-        )).thenThrow(
-      DioException(
-        requestOptions: RequestOptions(path: ''),
-        type: DioExceptionType.connectionError,
-      ),
-    );
-
-    when(() => mockDio.get(
-          'https://world.openproductsfacts.org/api/v0/product/$barcode.json',
           options: any(named: 'options'),
         )).thenAnswer((_) async => Response(
           requestOptions: RequestOptions(path: ''),
           statusCode: 200,
           data: {
-            'status': 1,
-            'product': {
-              'product_name': 'Animal Crossing',
-              'image_url': 'https://example.com/ac.jpg',
-              'categories': 'Video games',
-            },
+            'barcode': barcode,
+            'productName': 'Borderlands 2',
+            'description': 'Action RPG game',
+            'imageUrl': 'https://example.com/borderlands.jpg',
+            'category': 'Video Games',
+            'source': 'UPCitemdb',
           },
         ));
 
     final result = await service.lookup(barcode);
 
     expect(result, isNotNull);
-    expect(result!.productName, equals('Animal Crossing'));
-    expect(result.source, equals('Open Products Facts'));
-    verify(() => mockCacheDao.insertOrUpdate(any())).called(1);
-  });
+    expect(result!.productName, equals('Borderlands 2'));
+    expect(result.source, equals('UPCitemdb'));
+    expect(result.imageUrl, equals('https://example.com/borderlands.jpg'));
 
-  test('falls through to Open Food Facts when prior APIs miss', () async {
-    const barcode = '001111222233';
-    when(() => mockCacheDao.lookup(barcode)).thenAnswer((_) async => null);
-    when(() => mockCacheDao.insertOrUpdate(any())).thenAnswer((_) async {});
-
-    when(() => mockDio.get(
+    verify(() => mockDio.get(
+          '$origin/api/upc',
+          queryParameters: {'upc': barcode},
+          options: any(named: 'options'),
+        )).called(1);
+    verifyNever(() => mockDio.get(
           'https://api.upcitemdb.com/prod/trial/lookup',
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
-        )).thenThrow(
-      DioException(
-        requestOptions: RequestOptions(path: ''),
-        type: DioExceptionType.badResponse,
-        response: Response(
+        ));
+    verify(() => mockCacheDao.insertOrUpdate(any())).called(1);
+  });
+
+  test('proxy 404 returns null (not found)', () async {
+    const barcode = '999999999999';
+    const origin = 'https://flipbin.example';
+    service = BarcodeLookupService(
+      dio: mockDio,
+      cacheDao: mockCacheDao,
+      useSameOriginProxy: true,
+      proxyOrigin: origin,
+    );
+
+    when(() => mockCacheDao.lookup(barcode)).thenAnswer((_) async => null);
+
+    when(() => mockDio.get(
+          '$origin/api/upc',
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+        )).thenAnswer((_) async => Response(
           requestOptions: RequestOptions(path: ''),
           statusCode: 404,
-        ),
-      ),
-    );
-
-    when(() => mockDio.get(
-          'https://world.openproductsfacts.org/api/v0/product/$barcode.json',
-          options: any(named: 'options'),
-        )).thenAnswer((_) async => Response(
-          requestOptions: RequestOptions(path: ''),
-          statusCode: 200,
-          data: {'status': 0},
-        ));
-
-    when(() => mockDio.get(
-          'https://world.openfoodfacts.org/api/v0/product/$barcode.json',
-          options: any(named: 'options'),
-        )).thenAnswer((_) async => Response(
-          requestOptions: RequestOptions(path: ''),
-          statusCode: 200,
-          data: {
-            'status': 1,
-            'product': {
-              'product_name': 'Energy Drink',
-              'image_url': 'https://example.com/drink.jpg',
-              'categories': 'Beverages',
-            },
-          },
+          data: {'error': 'not_found', 'barcode': barcode},
         ));
 
     final result = await service.lookup(barcode);
-
-    expect(result, isNotNull);
-    expect(result!.productName, equals('Energy Drink'));
-    expect(result.source, equals('Open Food Facts'));
-    verify(() => mockCacheDao.insertOrUpdate(any())).called(1);
+    expect(result, isNull);
+    verifyNever(() => mockCacheDao.insertOrUpdate(any()));
   });
 
-  test('returns null when all APIs fail', () async {
+  test('returns null when UPCitemdb fails', () async {
     const barcode = '999999999999';
     when(() => mockCacheDao.lookup(barcode)).thenAnswer((_) async => null);
 
     when(() => mockDio.get(
           any(),
           queryParameters: any(named: 'queryParameters'),
-          options: any(named: 'options'),
-        )).thenThrow(
-      DioException(
-        requestOptions: RequestOptions(path: ''),
-        type: DioExceptionType.badResponse,
-        response: Response(
-          requestOptions: RequestOptions(path: ''),
-          statusCode: 404,
-        ),
-      ),
-    );
-
-    when(() => mockDio.get(
-          any(),
           options: any(named: 'options'),
         )).thenThrow(
       DioException(
@@ -230,16 +205,6 @@ void main() {
     when(() => mockDio.get(
           any(),
           queryParameters: any(named: 'queryParameters'),
-          options: any(named: 'options'),
-        )).thenThrow(
-      DioException(
-        requestOptions: RequestOptions(path: ''),
-        type: DioExceptionType.connectionTimeout,
-      ),
-    );
-
-    when(() => mockDio.get(
-          any(),
           options: any(named: 'options'),
         )).thenThrow(
       DioException(

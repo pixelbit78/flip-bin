@@ -13,6 +13,12 @@ class FakeBarcodeLookupService implements BarcodeLookupService {
   final Map<String, Completer<BarcodeResult?>> pendingLookups = {};
 
   @override
+  bool get useSameOriginProxy => false;
+
+  @override
+  String? get proxyOrigin => null;
+
+  @override
   Future<BarcodeResult?> lookup(String barcode) {
     final completer = Completer<BarcodeResult?>();
     pendingLookups[barcode] = completer;
