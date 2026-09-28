@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,8 +18,9 @@ class ScannerScreen extends ConsumerStatefulWidget {
 class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   final TextEditingController _manualController = TextEditingController();
 
-  /// On web, browsers often require a user gesture before getUserMedia.
-  /// Start with autoStart:false and prompt with an Enable Camera button.
+  /// On web, browsers require a user gesture before getUserMedia.
+  /// Keep autoStart:false on web and start from the Enable Camera button —
+  /// but only AFTER MobileScanner is mounted (see [_enableCamera]).
   late final MobileScannerController _scannerController =
       MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
@@ -25,18 +28,40 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     autoStart: !kIsWeb,
   );
 
+  /// Direct subscription to the controller barcode stream.
+  /// mobile_scanner 4.x with autoStart:false has gaps where widget [onDetect]
+  /// alone may never fire; listening here is the reliable path.
+  StreamSubscription<BarcodeCapture>? _barcodeSubscription;
+
   bool _cameraStarted = !kIsWeb;
   bool _startingCamera = false;
   String? _cameraStartError;
 
   @override
+  void initState() {
+    super.initState();
+    _barcodeSubscription =
+        _scannerController.barcodes.listen(_handleBarcodeCapture);
+  }
+
+  @override
   void dispose() {
+    _barcodeSubscription?.cancel();
+    _barcodeSubscription = null;
     _manualController.dispose();
-    // MobileScanner.dispose() also disposes a provided controller when mounted.
-    if (!_cameraStarted) {
-      _scannerController.dispose();
-    }
+    // MobileScanner is always in the tree and disposes the provided controller.
     super.dispose();
+  }
+
+  void _handleBarcodeCapture(BarcodeCapture capture) {
+    final barcodes = capture.barcodes;
+    for (final barcode in barcodes) {
+      final raw = barcode.rawValue;
+      if (raw != null && raw.isNotEmpty) {
+        ref.read(scannerProvider.notifier).onBarcodeDetected(raw);
+        break;
+      }
+    }
   }
 
   Future<void> _enableCamera() async {
@@ -46,6 +71,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
       _cameraStartError = null;
     });
     try {
+      // MobileScanner is already mounted (under the permission overlay).
+      // Starting only after attach is required for web decode + onDetect wiring.
       await _scannerController.start();
       if (!mounted) return;
       setState(() {
@@ -111,61 +138,20 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   }
 
   Widget _buildViewfinder(BuildContext context) {
-    if (kIsWeb && !_cameraStarted) {
-      return _buildCameraPlaceholder(
-        icon: Icons.photo_camera,
-        title: 'Camera ready',
-        subtitle:
-            'Tap Enable Camera to grant permission and start scanning barcodes. You can also enter a UPC manually below.',
-        action: ElevatedButton.icon(
-          onPressed: _startingCamera ? null : _enableCamera,
-          icon: _startingCamera
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.videocam),
-          label: Text(_startingCamera ? 'Starting…' : 'Enable Camera'),
-        ),
-      );
-    }
-
-    if (_cameraStartError != null) {
-      return _buildCameraPlaceholder(
-        icon: Icons.videocam_off,
-        title: 'Camera Unavailable or Permission Denied',
-        subtitle:
-            'Please grant camera permission in your browser or enter the barcode manually below.\n$_cameraStartError',
-        action: ElevatedButton.icon(
-          onPressed: () {
-            setState(() {
-              _cameraStarted = false;
-              _cameraStartError = null;
-            });
-            _enableCamera();
-          },
-          icon: const Icon(Icons.refresh),
-          label: const Text('Try Again'),
-        ),
-      );
-    }
-
+    // Always keep MobileScanner mounted. Unmounting it disposes the shared
+    // controller (package behavior), which breaks retry / web decode wiring.
     return Stack(
       fit: StackFit.expand,
       children: [
+        // Always mount MobileScanner (including on web before permission).
+        // Prior bug: start() ran while this widget was absent, so the web
+        // platform view / barcode stream listener never attached and decode
+        // never reached the app despite a live camera preview.
         MobileScanner(
           controller: _scannerController,
-          onDetect: (capture) {
-            final barcodes = capture.barcodes;
-            for (final barcode in barcodes) {
-              final raw = barcode.rawValue;
-              if (raw != null && raw.isNotEmpty) {
-                ref.read(scannerProvider.notifier).onBarcodeDetected(raw);
-                break;
-              }
-            }
-          },
+          // Required by mobile_scanner 4.x; real handling is via barcodes stream
+          // in initState (reliable with autoStart:false).
+          onDetect: (_) {},
           errorBuilder: (context, error, child) {
             return _buildCameraPlaceholder(
               icon: Icons.videocam_off,
@@ -173,38 +159,66 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
               subtitle:
                   'Please grant camera permission in your browser or enter the barcode manually below.',
               action: ElevatedButton.icon(
-                onPressed: () async {
-                  try {
-                    await _scannerController.start();
-                    if (mounted) {
-                      setState(() => _cameraStartError = null);
-                    }
-                  } catch (e) {
-                    if (mounted) {
-                      setState(() => _cameraStartError = e.toString());
-                    }
-                  }
-                },
+                onPressed: _startingCamera ? null : _enableCamera,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Try Again'),
               ),
             );
           },
         ),
-        // Reticle / Corner brackets overlay
-        Center(
-          child: Container(
-            width: 220,
-            height: 140,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: Theme.of(context).colorScheme.primary,
-                width: 2.5,
+        // Reticle / Corner brackets overlay (hidden under permission/error UI)
+        if (_cameraStarted && _cameraStartError == null)
+          Center(
+            child: Container(
+              width: 220,
+              height: 140,
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.primary,
+                  width: 2.5,
+                ),
+                borderRadius: BorderRadius.circular(12),
               ),
-              borderRadius: BorderRadius.circular(12),
             ),
           ),
-        ),
+        // Start-failure overlay (keeps MobileScanner mounted underneath)
+        if (_cameraStartError != null)
+          _buildCameraPlaceholder(
+            icon: Icons.videocam_off,
+            title: 'Camera Unavailable or Permission Denied',
+            subtitle:
+                'Please grant camera permission in your browser or enter the barcode manually below.\n$_cameraStartError',
+            action: ElevatedButton.icon(
+              onPressed: _startingCamera
+                  ? null
+                  : () {
+                      setState(() => _cameraStartError = null);
+                      _enableCamera();
+                    },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try Again'),
+            ),
+          )
+        // Web: gate getUserMedia behind a user gesture, without delaying
+        // MobileScanner mount (overlay sits on top until start succeeds).
+        else if (kIsWeb && !_cameraStarted)
+          _buildCameraPlaceholder(
+            icon: Icons.photo_camera,
+            title: 'Camera ready',
+            subtitle:
+                'Tap Enable Camera to grant permission and start scanning barcodes. You can also enter a UPC manually below.',
+            action: ElevatedButton.icon(
+              onPressed: _startingCamera ? null : _enableCamera,
+              icon: _startingCamera
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.videocam),
+              label: Text(_startingCamera ? 'Starting…' : 'Enable Camera'),
+            ),
+          ),
       ],
     );
   }

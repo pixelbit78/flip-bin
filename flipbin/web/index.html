@@ -28,8 +28,10 @@
     }
   </script>
 
-  <!-- ZXing barcode library required by mobile_scanner on Flutter web (v4.x) -->
-  <script src="https://unpkg.com/@zxing/library@0.19.1" type="application/javascript"></script>
+  <!-- ZXing barcode library required by mobile_scanner on Flutter web (v4.x).
+       Use the explicit UMD build so window.ZXing is set even if an AMD loader
+       is present; the bare unpkg URL redirects here but can race oddly. -->
+  <script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js" type="application/javascript"></script>
 
   <!-- Load SQLite WebAssembly for Drift Database -->
   <script src="sql-wasm.js"></script>
