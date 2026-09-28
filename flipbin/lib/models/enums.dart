@@ -26,6 +26,17 @@ enum ItemType {
         return 'Other';
     }
   }
+
+  static ItemType fromLabel(String? label) {
+    if (label == null || label.trim().isEmpty) return ItemType.other;
+    final lower = label.trim().toLowerCase();
+    for (final val in ItemType.values) {
+      if (val.label.toLowerCase() == lower || val.name.toLowerCase() == lower) {
+        return val;
+      }
+    }
+    return ItemType.other;
+  }
 }
 
 /// Status of an inventory item.
@@ -43,6 +54,17 @@ enum ItemStatus {
       case ItemStatus.personal:
         return 'Personal';
     }
+  }
+
+  static ItemStatus fromLabel(String? label) {
+    if (label == null || label.trim().isEmpty) return ItemStatus.active;
+    final lower = label.trim().toLowerCase();
+    for (final val in ItemStatus.values) {
+      if (val.label.toLowerCase() == lower || val.name.toLowerCase() == lower) {
+        return val;
+      }
+    }
+    return ItemStatus.active;
   }
 }
 
@@ -67,5 +89,16 @@ enum ExpenseType {
       case ExpenseType.other:
         return 'Other';
     }
+  }
+
+  static ExpenseType fromLabel(String? label) {
+    if (label == null || label.trim().isEmpty) return ExpenseType.other;
+    final lower = label.trim().toLowerCase();
+    for (final val in ExpenseType.values) {
+      if (val.label.toLowerCase() == lower || val.name.toLowerCase() == lower) {
+        return val;
+      }
+    }
+    return ExpenseType.other;
   }
 }

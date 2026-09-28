@@ -138,4 +138,110 @@ void main() {
     );
     verifyNever(() => mockClient.batchUpdateValues(any(), any()));
   });
+
+  test('importFromSheets parses inventory and expense rows accurately', () async {
+    const sheetId = 'test-sheet-789';
+    when(() => mockClient.findSpreadsheetId('FlipBin Export'))
+        .thenAnswer((_) async => sheetId);
+    when(() => mockClient.getValues(sheetId, 'Inventory!A1:L')).thenAnswer(
+      (_) async => [
+        GoogleSheetsService.inventoryHeaders,
+        [
+          '01/15/2026',
+          '012345678905',
+          'Super Mario Odyssey',
+          'Game',
+          '29.99',
+          'eBay',
+          'Sold',
+          '02/01/2026',
+          '',
+          '17',
+          'Great condition',
+          'SALE-101',
+        ],
+        [
+          '02/10/2026',
+          '',
+          'The Matrix Blu-ray',
+          'Blu-ray',
+          '5.00',
+          'Mercari',
+          'Active',
+          '',
+          '',
+          '',
+          '',
+          '',
+        ],
+      ],
+    );
+    when(() => mockClient.getValues(sheetId, 'Expenses!A1:J')).thenAnswer(
+      (_) async => [
+        GoogleSheetsService.expenseHeaders,
+        [
+          '01/20/2026',
+          'USPS',
+          '/images/receipt1.png',
+          '999888777666',
+          'Shipping Boxes',
+          '5',
+          '2.50',
+          '12.50',
+          'Shipping',
+          '0.85',
+        ],
+      ],
+    );
+
+    final data = await service.importFromSheets();
+
+    expect(data.items.length, equals(2));
+    final item1 = data.items[0];
+    expect(item1.itemDescription.value, equals('Super Mario Odyssey'));
+    expect(item1.barcode.value, equals('012345678905'));
+    expect(item1.type.value, equals(ItemType.game));
+    expect(item1.cost.value, equals(29.99));
+    expect(item1.platform.value, equals('eBay'));
+    expect(item1.status.value, equals(ItemStatus.sold));
+    expect(item1.dateSold.value, equals(DateTime(2026, 2, 1)));
+    expect(item1.comments.value, equals('Great condition'));
+    expect(item1.saleNumber.value, equals('SALE-101'));
+
+    final item2 = data.items[1];
+    expect(item2.itemDescription.value, equals('The Matrix Blu-ray'));
+    expect(item2.type.value, equals(ItemType.bluray));
+    expect(item2.status.value, equals(ItemStatus.active));
+
+    expect(data.expenses.length, equals(1));
+    final exp1 = data.expenses[0];
+    expect(exp1.merchant.value, equals('USPS'));
+    expect(exp1.itemDescription.value, equals('Shipping Boxes'));
+    expect(exp1.quantity.value, equals(5));
+    expect(exp1.unitPrice.value, equals(2.50));
+    expect(exp1.expenseType.value, equals(ExpenseType.shipping));
+    expect(exp1.taxAmount.value, equals(0.85));
+  });
+
+  test('importFromSheets skips rows with empty descriptions', () async {
+    const sheetId = 'test-sheet-789';
+    when(() => mockClient.findSpreadsheetId('FlipBin Export'))
+        .thenAnswer((_) async => sheetId);
+    when(() => mockClient.getValues(sheetId, 'Inventory!A1:L')).thenAnswer(
+      (_) async => [
+        GoogleSheetsService.inventoryHeaders,
+        ['01/15/2026', '', '', '', '', '', '', '', '', '', '', ''],
+      ],
+    );
+    when(() => mockClient.getValues(sheetId, 'Expenses!A1:J')).thenAnswer(
+      (_) async => [
+        GoogleSheetsService.expenseHeaders,
+        ['', '', '', '', '', '', '', '', '', ''],
+      ],
+    );
+
+    final data = await service.importFromSheets();
+    expect(data.items, isEmpty);
+    expect(data.expenses, isEmpty);
+  });
 }

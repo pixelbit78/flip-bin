@@ -29,6 +29,49 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     super.dispose();
   }
 
+  Future<void> _confirmAndImport(BuildContext context, SyncNotifier syncNotifier) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent),
+            SizedBox(width: 8),
+            Text('Overwrite Local Data?'),
+          ],
+        ),
+        content: const Text(
+          'Importing from Google Sheets will completely overwrite all local inventory items and expenses with the data in "FlipBin Export".\n\nThis cannot be undone. Are you sure you want to proceed?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Overwrite & Import'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      final result = await syncNotifier.import();
+      if (result != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.green.shade800,
+            content: Text(
+              'Successfully imported ${result.itemsCount} inventory items and ${result.expensesCount} expenses!',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final syncState = ref.watch(syncProvider);
@@ -208,9 +251,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             const SizedBox(height: 20),
 
-            // Google Sheets Sync Section
+            // Google Sheets Export & Import Section
             Text(
-              'Google Sheets Backup',
+              'Google Sheets Backup (Export & Import)',
               style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -223,7 +266,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Last Synced:'),
+                        const Text('Last Exported:'),
                         Text(
                           syncState.lastSyncedAt != null
                               ? dateFormat.format(syncState.lastSyncedAt!)
@@ -237,6 +280,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                       ],
                     ),
+                    if (syncState.lastImportedAt != null) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Last Imported:'),
+                          Text(
+                            dateFormat.format(syncState.lastImportedAt!),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.lightBlueAccent,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     if (syncState.spreadsheetId != null) ...[
                       const SizedBox(height: 14),
                       Container(
@@ -288,23 +347,54 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ],
                     const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: syncState.isSyncing || syncState.account == null
-                          ? null
-                          : () => syncNotifier.sync(),
-                      icon: syncState.isSyncing
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.sync),
-                      label: Text(syncState.isSyncing ? 'Syncing...' : 'Sync Now to Sheets'),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: (syncState.isSyncing || syncState.isImporting || syncState.account == null)
+                                ? null
+                                : () async {
+                                    await syncNotifier.export();
+                                    if (context.mounted && syncState.error == null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Successfully exported data to Google Sheets!'),
+                                        ),
+                                      );
+                                    }
+                                  },
+                            icon: syncState.isSyncing
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.upload),
+                            label: Text(syncState.isSyncing ? 'Exporting...' : 'Export to Sheets'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: (syncState.isSyncing || syncState.isImporting || syncState.account == null)
+                                ? null
+                                : () => _confirmAndImport(context, syncNotifier),
+                            icon: syncState.isImporting
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.download),
+                            label: Text(syncState.isImporting ? 'Importing...' : 'Import from Sheets'),
+                          ),
+                        ),
+                      ],
                     ),
                     if (syncState.account == null) ...[
                       const SizedBox(height: 8),
                       const Text(
-                        'Sign in above to enable Google Sheets backup.',
+                        'Sign in above to enable Google Sheets export and import.',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 12, color: Colors.white38),
                       ),

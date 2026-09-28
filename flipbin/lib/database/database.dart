@@ -118,6 +118,17 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
   Future<List<InventoryItem>> getAllForExport() {
     return (select(inventoryItems)..orderBy([(tbl) => OrderingTerm.asc(tbl.dateAdded)])).get();
   }
+
+  Future<void> replaceAll(List<InventoryItemsCompanion> items) async {
+    await db.transaction(() async {
+      await delete(inventoryItems).go();
+      if (items.isNotEmpty) {
+        await batch((b) {
+          b.insertAll(inventoryItems, items);
+        });
+      }
+    });
+  }
 }
 
 @DriftAccessor(tables: [Expenses])
@@ -174,6 +185,17 @@ class ExpensesDao extends DatabaseAccessor<FlipBinDatabase> with _$ExpensesDaoMi
 
   Future<List<Expense>> getAllForExport() {
     return (select(expenses)..orderBy([(tbl) => OrderingTerm.asc(tbl.date)])).get();
+  }
+
+  Future<void> replaceAll(List<ExpensesCompanion> items) async {
+    await db.transaction(() async {
+      await delete(expenses).go();
+      if (items.isNotEmpty) {
+        await batch((b) {
+          b.insertAll(expenses, items);
+        });
+      }
+    });
   }
 }
 

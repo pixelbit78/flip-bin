@@ -1,13 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flipbin/providers/database_provider.dart';
+import 'package:flipbin/providers/expense_provider.dart';
+import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/services/google_sheets_service.dart';
 
 /// State of Google Sheets synchronization.
 class SyncState {
   final GoogleSignInAccount? account;
   final bool isSyncing;
+  final bool isImporting;
   final DateTime? lastSyncedAt;
+  final DateTime? lastImportedAt;
   final String? error;
   final String? clientId;
   final String? spreadsheetId;
@@ -15,7 +19,9 @@ class SyncState {
   const SyncState({
     this.account,
     this.isSyncing = false,
+    this.isImporting = false,
     this.lastSyncedAt,
+    this.lastImportedAt,
     this.error,
     this.clientId,
     this.spreadsheetId,
@@ -24,7 +30,9 @@ class SyncState {
   SyncState copyWith({
     GoogleSignInAccount? account,
     bool? isSyncing,
+    bool? isImporting,
     DateTime? lastSyncedAt,
+    DateTime? lastImportedAt,
     String? error,
     String? clientId,
     String? spreadsheetId,
@@ -35,7 +43,9 @@ class SyncState {
     return SyncState(
       account: clearAccount ? null : (account ?? this.account),
       isSyncing: isSyncing ?? this.isSyncing,
+      isImporting: isImporting ?? this.isImporting,
       lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
+      lastImportedAt: lastImportedAt ?? this.lastImportedAt,
       error: clearError ? null : (error ?? this.error),
       clientId: clientId ?? this.clientId,
       spreadsheetId:
@@ -93,8 +103,12 @@ class SyncNotifier extends StateNotifier<SyncState> {
     }
   }
 
+  Future<void> export() async {
+    await sync();
+  }
+
   Future<void> sync() async {
-    if (state.isSyncing) return;
+    if (state.isSyncing || state.isImporting) return;
 
     state = state.copyWith(isSyncing: true, clearError: true);
     try {
@@ -117,8 +131,44 @@ class SyncNotifier extends StateNotifier<SyncState> {
     } catch (e) {
       state = state.copyWith(
         isSyncing: false,
-        error: 'Sync failed: $e',
+        error: 'Export failed: $e',
       );
+    }
+  }
+
+  Future<({int itemsCount, int expensesCount})?> import() async {
+    if (state.isSyncing || state.isImporting) return null;
+
+    state = state.copyWith(isImporting: true, clearError: true);
+    try {
+      final importData = await _sheetsService.importFromSheets(
+        existingSpreadsheetId: state.spreadsheetId,
+      );
+
+      final db = _ref.read(databaseProvider);
+      await db.inventoryItemsDao.replaceAll(importData.items);
+      await db.expensesDao.replaceAll(importData.expenses);
+
+      // Invalidate stream list providers to immediately update active screens
+      _ref.invalidate(inventoryListProvider);
+      _ref.invalidate(expenseListProvider);
+
+      state = state.copyWith(
+        isImporting: false,
+        lastImportedAt: DateTime.now(),
+        clearError: true,
+      );
+
+      return (
+        itemsCount: importData.items.length,
+        expensesCount: importData.expenses.length,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        isImporting: false,
+        error: 'Import failed: $e',
+      );
+      return null;
     }
   }
 }
