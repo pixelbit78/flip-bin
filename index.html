@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="/flip-bin/">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="FlipBin - Inventory & Expense Tracking for Resellers">
+  <meta name="theme-color" content="#1A1D23">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="FlipBin">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- Allow camera access for barcode scanning (mobile_scanner / getUserMedia) -->
+  <meta http-equiv="Permissions-Policy" content="camera=(self), microphone=()">
+  <title>FlipBin</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <meta name="google-signin-client_id" content="300135141102-ijqefa0enb2pm08i5kkgdnfbmpgp46tb.apps.googleusercontent.com">
+
+  <!-- Unregister old service workers to ensure fresh assets in development -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for (var r of registrations) {
+          r.unregister();
+        }
+      });
+    }
+  </script>
+
+  <!-- mobile_scanner 7.x loads BarcodeDetector / zxing-wasm automatically.
+       Do NOT pin legacy @zxing/library here — that backend often failed to
+       decode clear UPC-A despite a live camera preview. -->
+
+  <!-- Load SQLite WebAssembly for Drift Database -->
+  <script src="sql-wasm.js"></script>
+  <script>
+    if (typeof initSqlJs === 'undefined') {
+      console.warn('Local sql-wasm.js not loaded, attempting CDN fallback...');
+      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"><\/script>');
+    }
+  </script>
+  <script>
+    if (typeof initSqlJs !== 'undefined') {
+      window.initSqlJs = initSqlJs;
+      globalThis.initSqlJs = initSqlJs;
+    }
+  </script>
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
