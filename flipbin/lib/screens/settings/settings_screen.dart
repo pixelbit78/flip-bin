@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:flipbin/providers/sync_provider.dart';
+import 'package:flipbin/services/google_sheets_service.dart';
 
 /// Settings screen for managing Google Sheets synchronization and cloud backup.
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -18,7 +19,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _clientIdController = TextEditingController();
+    _clientIdController = TextEditingController(text: GoogleSheetsService.defaultClientId);
   }
 
   @override

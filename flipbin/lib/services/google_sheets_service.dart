@@ -78,13 +78,18 @@ class GoogleSheetsService {
     'With Tax',
   ];
 
+  static const defaultClientId =
+      '300135141102-ijqefa0enb2pm08i5kkgdnfbmpgp46tb.apps.googleusercontent.com';
+
   GoogleSheetsService({
     GoogleSignIn? googleSignIn,
     SheetsClient? sheetsClient,
     String? clientId,
   })  : _googleSignIn = googleSignIn ??
             GoogleSignIn(
-              clientId: (clientId != null && clientId.trim().isNotEmpty) ? clientId.trim() : null,
+              clientId: (clientId != null && clientId.trim().isNotEmpty)
+                  ? clientId.trim()
+                  : defaultClientId,
               scopes: [
                 'https://www.googleapis.com/auth/spreadsheets',
                 'https://www.googleapis.com/auth/drive.file',
