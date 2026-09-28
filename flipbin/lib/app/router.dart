@@ -7,6 +7,8 @@ import 'package:flipbin/screens/expenses/expense_list_screen.dart';
 import 'package:flipbin/screens/inventory/inventory_list_screen.dart';
 import 'package:flipbin/screens/inventory/item_detail_screen.dart';
 
+import 'package:flipbin/screens/scanner/scanner_screen.dart';
+
 /// FlipBin router configuration with bottom navigation shell.
 class FlipBinRouter {
   FlipBinRouter._();
@@ -49,7 +51,7 @@ class FlipBinRouter {
           ),
           GoRoute(
             path: '/scan',
-            builder: (context, state) => const _PlaceholderScreen(name: 'Scanner'),
+            builder: (context, state) => const ScannerScreen(),
           ),
           GoRoute(
             path: '/settings',
