@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flipbin/screens/dashboard/dashboard_screen.dart';
 
+import 'package:flipbin/screens/inventory/inventory_list_screen.dart';
+import 'package:flipbin/screens/inventory/item_detail_screen.dart';
+
 /// FlipBin router configuration with bottom navigation shell.
 class FlipBinRouter {
   FlipBinRouter._();
@@ -18,13 +21,13 @@ class FlipBinRouter {
           ),
           GoRoute(
             path: '/inventory',
-            builder: (context, state) => const _PlaceholderScreen(name: 'Inventory'),
+            builder: (context, state) => const InventoryListScreen(),
             routes: [
               GoRoute(
                 path: ':id',
                 builder: (context, state) {
-                  final id = state.pathParameters['id'] ?? '';
-                  return _PlaceholderScreen(name: 'Item Detail ($id)');
+                  final id = state.pathParameters['id'] ?? 'new';
+                  return ItemDetailScreen(itemId: id);
                 },
               ),
             ],
