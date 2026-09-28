@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flipbin/screens/dashboard/dashboard_screen.dart';
 
+import 'package:flipbin/screens/expenses/expense_detail_screen.dart';
+import 'package:flipbin/screens/expenses/expense_list_screen.dart';
 import 'package:flipbin/screens/inventory/inventory_list_screen.dart';
 import 'package:flipbin/screens/inventory/item_detail_screen.dart';
 
@@ -34,13 +36,13 @@ class FlipBinRouter {
           ),
           GoRoute(
             path: '/expenses',
-            builder: (context, state) => const _PlaceholderScreen(name: 'Expenses'),
+            builder: (context, state) => const ExpenseListScreen(),
             routes: [
               GoRoute(
                 path: ':id',
                 builder: (context, state) {
-                  final id = state.pathParameters['id'] ?? '';
-                  return _PlaceholderScreen(name: 'Expense Detail ($id)');
+                  final id = state.pathParameters['id'] ?? 'new';
+                  return ExpenseDetailScreen(expenseId: id);
                 },
               ),
             ],
