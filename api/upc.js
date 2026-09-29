@@ -1,6 +1,7 @@
 /**
  * Serverless proxy: GET /api/upc?upc=...
  * Calls UPCitemdb trial server-side (avoids browser CORS) and returns clean JSON.
+ * Cover imageUrl is rewritten through /api/image so Flutter web CanvasKit can load it.
  */
 const UPSTREAM = 'https://api.upcitemdb.com/prod/trial/lookup';
 
@@ -23,12 +24,33 @@ function normalizeUpc(raw) {
   return String(raw).trim();
 }
 
+/** Prefer first images[] entry; upgrade http→https. */
 function pickImage(item) {
   const images = item && item.images;
   if (Array.isArray(images) && images.length > 0 && images[0]) {
-    return String(images[0]);
+    let url = String(images[0]).trim();
+    if (!url) return null;
+    if (url.startsWith('http://')) {
+      url = `https://${url.slice('http://'.length)}`;
+    }
+    return url;
   }
   return null;
+}
+
+/**
+ * Same-origin image proxy URL so CanvasKit Image.network is not blocked by
+ * CDNs that omit Access-Control-Allow-Origin (e.g. covers*.booksamillion.com).
+ */
+function toProxiedImageUrl(req, rawUrl) {
+  if (!rawUrl) return null;
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  const qs = `url=${encodeURIComponent(rawUrl)}`;
+  if (!host) {
+    return `/api/image?${qs}`;
+  }
+  return `${proto}://${host}/api/image?${qs}`;
 }
 
 module.exports = async function handler(req, res) {
@@ -99,11 +121,13 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    const rawImage = pickImage(item);
+
     json(res, 200, {
       barcode: upc,
       productName,
       description: item.description != null ? String(item.description) : null,
-      imageUrl: pickImage(item),
+      imageUrl: toProxiedImageUrl(req, rawImage),
       category: item.category != null ? String(item.category) : null,
       source: 'UPCitemdb',
     });

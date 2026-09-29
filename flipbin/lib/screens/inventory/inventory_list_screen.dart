@@ -5,6 +5,7 @@ import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/widgets/status_badge.dart';
 import 'package:flipbin/widgets/type_badge.dart';
+import 'package:flipbin/utils/proxied_image_url.dart';
 
 /// Screen displaying searchable and filterable list of inventory items.
 class InventoryListScreen extends ConsumerStatefulWidget {
@@ -128,10 +129,12 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
                                   width: 60,
                                   height: 60,
                                   color: Colors.white10,
-                                  child: item.imageUrl != null
+                                  child: proxiedImageUrl(item.imageUrl) != null
                                       ? Image.network(
-                                          item.imageUrl!,
+                                          proxiedImageUrl(item.imageUrl)!,
                                           fit: BoxFit.cover,
+                                          webHtmlElementStrategy:
+                                              WebHtmlElementStrategy.fallback,
                                           errorBuilder: (_, __, ___) => const Icon(
                                             Icons.inventory_2,
                                             color: Colors.white38,

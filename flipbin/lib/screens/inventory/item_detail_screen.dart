@@ -6,6 +6,7 @@ import 'package:drift/drift.dart' hide isNull, isNotNull, Column;
 import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
+import 'package:flipbin/utils/proxied_image_url.dart';
 
 /// Screen for adding or editing an inventory item.
 class ItemDetailScreen extends ConsumerStatefulWidget {
@@ -192,14 +193,15 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (_imageUrl != null)
+              if (proxiedImageUrl(_imageUrl) != null)
                 Center(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: Image.network(
-                      _imageUrl!,
+                      proxiedImageUrl(_imageUrl)!,
                       height: 160,
                       fit: BoxFit.cover,
+                      webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                     ),
                   ),

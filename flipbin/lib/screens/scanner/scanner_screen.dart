@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:flipbin/providers/scanner_provider.dart';
+import 'package:flipbin/utils/proxied_image_url.dart';
 
 /// Screen providing live camera barcode scanning with manual UPC lookup fallback.
 class ScannerScreen extends ConsumerStatefulWidget {
@@ -368,14 +369,19 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (scanState.result!.imageUrl != null)
+                            if (proxiedImageUrl(scanState.result!.imageUrl) !=
+                                null)
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
                                 child: Image.network(
-                                  scanState.result!.imageUrl!,
+                                  proxiedImageUrl(scanState.result!.imageUrl)!,
                                   width: 80,
                                   height: 80,
                                   fit: BoxFit.cover,
+                                  // CanvasKit needs CORS; /api/image is same-origin.
+                                  // fallback still helps if a raw CDN URL slips through.
+                                  webHtmlElementStrategy:
+                                      WebHtmlElementStrategy.fallback,
                                   errorBuilder: (_, __, ___) => const Icon(
                                     Icons.image_not_supported,
                                     size: 50,
