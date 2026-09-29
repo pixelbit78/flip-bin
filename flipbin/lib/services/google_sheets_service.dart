@@ -47,26 +47,93 @@ class RealSheetsClient implements SheetsClient {
       : _sheetsApi = sheets.SheetsApi(client),
         _driveApi = drive.DriveApi(client);
 
+  static const _sheetMime = 'application/vnd.google-apps.spreadsheet';
+
   @override
   Future<String?> findSpreadsheetId(String title) async {
-    try {
-      // Escape single quotes per Drive query syntax.
-      final escaped = title.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
-      final list = await _driveApi.files.list(
-        q: "name = '$escaped' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false",
-        $fields: 'files(id, name)',
+    // Escape single quotes / backslashes per Drive query syntax.
+    final escaped = title.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
+    final target = title.trim().toLowerCase();
+
+    Future<drive.FileList> query(String q, {String corpora = 'user'}) {
+      return _driveApi.files.list(
+        q: q,
+        $fields: 'files(id, name, mimeType, modifiedTime)',
         spaces: 'drive',
-        pageSize: 10,
+        corpora: corpora,
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
+        pageSize: 25,
         orderBy: 'modifiedTime desc',
       );
-      final files = list.files;
-      if (files != null && files.isNotEmpty) {
-        return files.first.id;
-      }
-    } catch (_) {
-      // Drive search may fail on scope restriction; caller falls back to stored ID.
     }
-    return null;
+
+    String? pick(List<drive.File>? files, {bool exactOnly = false}) {
+      if (files == null || files.isEmpty) return null;
+      for (final f in files) {
+        final name = (f.name ?? '').trim().toLowerCase();
+        final id = f.id;
+        if (id == null || id.isEmpty) continue;
+        if (exactOnly) {
+          if (name == target) return id;
+        } else if (name == target || name.contains(target)) {
+          return id;
+        }
+      }
+      // Query already constrained — take newest match.
+      return files.first.id;
+    }
+
+    Future<String?> tryQuery(
+      String q, {
+      String corpora = 'user',
+      bool exactOnly = false,
+    }) async {
+      try {
+        final list = await query(q, corpora: corpora);
+        return pick(list.files, exactOnly: exactOnly);
+      } on drive.DetailedApiRequestError catch (e) {
+        if (e.status == 401 || e.status == 403) {
+          throw Exception(
+            'Google Drive permission denied while searching for "$title" '
+            '(HTTP ${e.status}). Sign out and sign in again, then approve '
+            'Drive access when prompted so FlipBin can find your spreadsheet.',
+          );
+        }
+        // Non-auth failures (e.g. corpora unsupported) — try next strategy.
+        return null;
+      }
+    }
+
+    // 1) Exact name + Sheets mime in My Drive.
+    var id = await tryQuery(
+      "name = '$escaped' and mimeType = '$_sheetMime' and trashed = false",
+      exactOnly: true,
+    );
+    if (id != null) return id;
+
+    // 2) Same exact query across all drives (shared drives / shared-with-me).
+    id = await tryQuery(
+      "name = '$escaped' and mimeType = '$_sheetMime' and trashed = false",
+      corpora: 'allDrives',
+      exactOnly: true,
+    );
+    if (id != null) return id;
+
+    // 3) contains — catches trailing spaces / slight title drift.
+    id = await tryQuery(
+      "name contains '$escaped' and mimeType = '$_sheetMime' and trashed = false",
+      corpora: 'allDrives',
+    );
+    if (id != null) return id;
+
+    // 4) Name only (no mime filter) — e.g. uploaded .xlsx converted later.
+    id = await tryQuery(
+      "name = '$escaped' and trashed = false",
+      corpora: 'allDrives',
+      exactOnly: true,
+    );
+    return id;
   }
 
   @override
@@ -219,10 +286,16 @@ class GoogleSheetsService {
     );
   }
 
+  static const driveMetadataReadonlyScope =
+      'https://www.googleapis.com/auth/drive.metadata.readonly';
+
   Future<GoogleSignInAccount?> signIn() async {
     final account = await _googleSignIn.signIn();
     if (account != null) {
       await _persistAccount(account);
+      // Incremental consent for Drive metadata (needed to find sheets by name
+      // that FlipBin did not create). Must run after the account is current.
+      await _ensureDriveMetadataScope(forceRequest: true);
       await _persistLiveAccessToken(account);
     }
     return account;
@@ -243,10 +316,9 @@ class GoogleSheetsService {
         await _sessionStore.saveAccessToken(live);
       } else if (persisted?.accessToken != null) {
         _restoredAccessToken = persisted!.accessToken;
-      } else {
-        // Attempt silent scope refresh (no account picker when consent exists).
-        await _tryRefreshScopes();
       }
+      // Best-effort: pick up drive.metadata.readonly if the prior token lacks it.
+      await _ensureDriveMetadataScope(forceRequest: false);
       return account;
     }
 
@@ -295,18 +367,47 @@ class GoogleSheetsService {
     }
   }
 
-  Future<void> _tryRefreshScopes() async {
+  /// Ensures [driveMetadataReadonlyScope] is on the live token.
+  ///
+  /// Tokens minted before this scope was added only have drive.file, so
+  /// `files.list` by name returns empty for sheets FlipBin did not create —
+  /// which surfaces as "FlipBin Export was not found".
+  Future<bool> _ensureDriveMetadataScope({required bool forceRequest}) async {
+    final user = currentUser;
+    final token = _restoredAccessToken ??
+        (user != null ? await _tryReadLiveAccessToken(user) : null);
+
+    var hasMeta = false;
+    try {
+      hasMeta = await _googleSignIn.canAccessScopes(
+        const [driveMetadataReadonlyScope],
+        accessToken: token,
+      );
+    } catch (_) {
+      hasMeta = false;
+    }
+
+    if (hasMeta && !forceRequest) {
+      // Still refresh the token so we are not stuck on a stale cached bearer.
+      if (user != null) {
+        await _persistLiveAccessToken(user);
+      }
+      return true;
+    }
+
     try {
       final granted = await _googleSignIn.requestScopes(oauthScopes);
       if (granted) {
-        final user = currentUser;
-        if (user != null) {
-          await _persistLiveAccessToken(user);
+        final u = currentUser;
+        if (u != null) {
+          await _persistLiveAccessToken(u);
         }
+        return true;
       }
     } catch (_) {
-      // Popup blocked or consent needed — caller can prompt interactive sign-in.
+      // Popup blocked / consent deferred.
     }
+    return hasMeta;
   }
 
   Future<SheetsClient> _buildClient() async {
@@ -320,15 +421,21 @@ class GoogleSheetsService {
       throw _DemoClientSentinel();
     }
 
-    http.Client? httpClient;
-
-    if (_restoredAccessToken != null && _restoredAccessToken!.isNotEmpty) {
-      httpClient = AuthHeadersClient({
-        'Authorization': 'Bearer $_restoredAccessToken',
-      });
+    // Always try to attach drive.metadata.readonly before Drive name search.
+    // Prefer the freshly minted token over any pre-scope-change cached bearer.
+    final scopesOk = await _ensureDriveMetadataScope(forceRequest: true);
+    if (!scopesOk && user != null) {
+      // One more live-header attempt; import may still work via stored ID.
+      try {
+        await _persistLiveAccessToken(user);
+      } catch (_) {}
     }
 
-    if (httpClient == null && user != null) {
+    http.Client? httpClient;
+
+    // Prefer live auth headers (reflects latest scopes) over a possibly stale
+    // SharedPreferences bearer minted before drive.metadata.readonly existed.
+    if (user != null) {
       try {
         final headers = await user.authHeaders;
         if (headers.isNotEmpty) {
@@ -338,10 +445,17 @@ class GoogleSheetsService {
       } catch (_) {}
     }
 
+    if (httpClient == null &&
+        _restoredAccessToken != null &&
+        _restoredAccessToken!.isNotEmpty) {
+      httpClient = AuthHeadersClient({
+        'Authorization': 'Bearer $_restoredAccessToken',
+      });
+    }
+
     httpClient ??= await _googleSignIn.authenticatedClient();
     if (httpClient == null) {
-      // Last chance: interactive-free scope refresh, then retry.
-      await _tryRefreshScopes();
+      await _ensureDriveMetadataScope(forceRequest: true);
       if (_restoredAccessToken != null) {
         httpClient = AuthHeadersClient({
           'Authorization': 'Bearer $_restoredAccessToken',
@@ -392,7 +506,10 @@ class GoogleSheetsService {
     }
 
     throw Exception(
-      'Spreadsheet "$exportTitle" was not found in your Google Drive.',
+      'Spreadsheet "$exportTitle" was not found in your Google Drive. '
+      'Confirm the file exists (exact name), then sign out and sign in again '
+      'so FlipBin can request Drive search permission '
+      '(drive.metadata.readonly) and locate it by name.',
     );
   }
 

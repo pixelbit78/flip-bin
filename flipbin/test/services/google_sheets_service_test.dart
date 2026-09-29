@@ -380,4 +380,23 @@ void main() {
     expect(resolved.id, 'created');
     expect(resolved.created, isTrue);
   });
+
+  test('import surfaces Drive permission errors from name lookup', () async {
+    when(() => mockClient.findSpreadsheetId('FlipBin Export')).thenThrow(
+      Exception(
+        'Google Drive permission denied while searching for "FlipBin Export" (HTTP 403)',
+      ),
+    );
+
+    expect(
+      () => service.importFromSheets(),
+      throwsA(
+        predicate(
+          (e) =>
+              e is Exception &&
+              e.toString().contains('Drive permission denied'),
+        ),
+      ),
+    );
+  });
 }
