@@ -201,7 +201,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                       proxiedImageUrl(_imageUrl)!,
                       height: 160,
                       fit: BoxFit.cover,
-                      webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                      webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
                       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                     ),
                   ),

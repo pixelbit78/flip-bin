@@ -378,10 +378,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                                   width: 80,
                                   height: 80,
                                   fit: BoxFit.cover,
-                                  // CanvasKit needs CORS; /api/image is same-origin.
-                                  // fallback still helps if a raw CDN URL slips through.
+                                  // Prefer <img> on web: cover CDNs often omit CORS,
+                                  // which breaks CanvasKit byte-fetch Image.network.
                                   webHtmlElementStrategy:
-                                      WebHtmlElementStrategy.fallback,
+                                      WebHtmlElementStrategy.prefer,
                                   errorBuilder: (_, __, ___) => const Icon(
                                     Icons.image_not_supported,
                                     size: 50,

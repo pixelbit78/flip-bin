@@ -1,10 +1,13 @@
 /**
  * Serverless image proxy: GET /api/image?url=https://...
- * Same-origin bytes so Flutter web CanvasKit Image.network can display
- * cover art from CDNs that omit Access-Control-Allow-Origin.
+ * Same-origin bytes when upstream allows server fetch (CORS for CanvasKit).
+ * Some CDNs (Cloudflare) block datacenter IPs — callers should prefer
+ * WebHtmlElementStrategy for display; this remains a best-effort fallback.
  */
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MiB
 const FETCH_MS = 10000;
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -24,7 +27,6 @@ function isPrivateHost(hostname) {
   if (!h) return true;
   if (h === 'localhost' || h.endsWith('.localhost') || h === '0.0.0.0') return true;
   if (h === 'metadata.google.internal') return true;
-  // IPv4 private / loopback / link-local
   const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
   if (m) {
     const a = +m[1];
@@ -34,7 +36,6 @@ function isPrivateHost(hostname) {
     if (a === 172 && b >= 16 && b <= 31) return true;
     if (a === 192 && b === 168) return true;
   }
-  // Obvious IPv6 locals
   if (h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) return true;
   return false;
 }
@@ -43,7 +44,6 @@ function normalizeTarget(raw) {
   if (raw == null) return null;
   let s = String(raw).trim();
   if (!s) return null;
-  // Mixed content / legacy http cover links → https
   if (s.startsWith('http://')) {
     s = `https://${s.slice('http://'.length)}`;
   }
@@ -81,12 +81,16 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    const upstreamUrl = new URL(target);
     const upstream = await fetch(target, {
       method: 'GET',
       redirect: 'follow',
       headers: {
-        Accept: 'image/*,*/*;q=0.8',
-        'User-Agent': 'FlipBin/1.0 (https://github.com/pixelbit78/flip-bin)',
+        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        'User-Agent': BROWSER_UA,
+        // Many cover CDNs expect a document referer; use the image host origin.
+        Referer: `${upstreamUrl.origin}/`,
+        'Accept-Language': 'en-US,en;q=0.9',
       },
       signal: AbortSignal.timeout(FETCH_MS),
     });
@@ -100,7 +104,11 @@ module.exports = async function handler(req, res) {
     }
 
     const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
-    if (contentType && !contentType.startsWith('image/') && !contentType.startsWith('application/octet-stream')) {
+    if (
+      contentType &&
+      !contentType.startsWith('image/') &&
+      !contentType.startsWith('application/octet-stream')
+    ) {
       sendJson(res, 502, {
         error: 'not_an_image',
         contentType,

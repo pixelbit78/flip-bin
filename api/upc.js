@@ -1,7 +1,7 @@
 /**
  * Serverless proxy: GET /api/upc?upc=...
  * Calls UPCitemdb trial server-side (avoids browser CORS) and returns clean JSON.
- * Cover imageUrl is rewritten through /api/image so Flutter web CanvasKit can load it.
+ * imageUrl is the first images[] entry, upgraded to https when needed.
  */
 const UPSTREAM = 'https://api.upcitemdb.com/prod/trial/lookup';
 
@@ -24,7 +24,7 @@ function normalizeUpc(raw) {
   return String(raw).trim();
 }
 
-/** Prefer first images[] entry; upgrade http→https. */
+/** Prefer first images[] entry; upgrade http→https (avoid mixed content). */
 function pickImage(item) {
   const images = item && item.images;
   if (Array.isArray(images) && images.length > 0 && images[0]) {
@@ -36,21 +36,6 @@ function pickImage(item) {
     return url;
   }
   return null;
-}
-
-/**
- * Same-origin image proxy URL so CanvasKit Image.network is not blocked by
- * CDNs that omit Access-Control-Allow-Origin (e.g. covers*.booksamillion.com).
- */
-function toProxiedImageUrl(req, rawUrl) {
-  if (!rawUrl) return null;
-  const host = req.headers['x-forwarded-host'] || req.headers.host;
-  const proto = req.headers['x-forwarded-proto'] || 'https';
-  const qs = `url=${encodeURIComponent(rawUrl)}`;
-  if (!host) {
-    return `/api/image?${qs}`;
-  }
-  return `${proto}://${host}/api/image?${qs}`;
 }
 
 module.exports = async function handler(req, res) {
@@ -71,7 +56,6 @@ module.exports = async function handler(req, res) {
     json(res, 400, { error: 'missing_upc', message: 'Query parameter upc is required' });
     return;
   }
-  // Keep digits (and leading zeros) — UPCitemdb expects the UPC string as scanned.
   if (!/^\d{8,14}$/.test(upc)) {
     json(res, 400, {
       error: 'invalid_upc',
@@ -89,7 +73,6 @@ module.exports = async function handler(req, res) {
         Accept: 'application/json',
         'User-Agent': 'FlipBin/1.0 (https://github.com/pixelbit78/flip-bin)',
       },
-      // Trial API is rate-limited; fail fast.
       signal: AbortSignal.timeout(8000),
     });
 
@@ -121,13 +104,11 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    const rawImage = pickImage(item);
-
     json(res, 200, {
       barcode: upc,
       productName,
       description: item.description != null ? String(item.description) : null,
-      imageUrl: toProxiedImageUrl(req, rawImage),
+      imageUrl: pickImage(item),
       category: item.category != null ? String(item.category) : null,
       source: 'UPCitemdb',
     });

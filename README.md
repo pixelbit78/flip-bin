@@ -200,7 +200,7 @@ vercel link           # link to Hobby project / import GitHub repo
 vercel --prod         # production deploy
 ```
 
-`vercel.json` runs `scripts/vercel-install.sh` (Flutter stable + `pub get`) and `scripts/vercel-build.sh` (`flutter build web --release --base-href /`), then publishes `flipbin/build/web` with serverless `/api/upc` (UPCitemdb proxy) and `/api/image` (CORS-safe cover proxy for CanvasKit), plus SPA rewrites to `index.html`.
+`vercel.json` runs `scripts/vercel-install.sh` (Flutter stable + `pub get`) and `scripts/vercel-build.sh` (`flutter build web --release --base-href /`), then publishes `flipbin/build/web` with serverless `/api/upc` (UPCitemdb metadata proxy) and optional `/api/image` (best-effort cover proxy), plus SPA rewrites to `index.html`. Product cards use `WebHtmlElementStrategy.prefer` so cover CDNs without CORS still render via browser `<img>`.
 
 **Alternative:** import the GitHub repo in the Vercel dashboard (Hobby) and deploy from `main`; root directory = repo root.
 

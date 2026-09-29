@@ -134,7 +134,7 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
                                           proxiedImageUrl(item.imageUrl)!,
                                           fit: BoxFit.cover,
                                           webHtmlElementStrategy:
-                                              WebHtmlElementStrategy.fallback,
+                                              WebHtmlElementStrategy.prefer,
                                           errorBuilder: (_, __, ___) => const Icon(
                                             Icons.inventory_2,
                                             color: Colors.white38,
