@@ -9,6 +9,7 @@ import 'package:flipbin/screens/inventory/item_detail_screen.dart';
 
 import 'package:flipbin/screens/scanner/scanner_screen.dart';
 import 'package:flipbin/screens/settings/settings_screen.dart';
+import 'package:flipbin/services/barcode_lookup_service.dart';
 
 /// FlipBin router configuration with bottom navigation shell.
 class FlipBinRouter {
@@ -32,7 +33,13 @@ class FlipBinRouter {
                 path: ':id',
                 builder: (context, state) {
                   final id = state.pathParameters['id'] ?? 'new';
-                  return ItemDetailScreen(itemId: id);
+                  final extra = state.extra;
+                  final prefill =
+                      extra is BarcodeResult ? extra : null;
+                  return ItemDetailScreen(
+                    itemId: id,
+                    scanPrefill: prefill,
+                  );
                 },
               ),
             ],
@@ -45,7 +52,13 @@ class FlipBinRouter {
                 path: ':id',
                 builder: (context, state) {
                   final id = state.pathParameters['id'] ?? 'new';
-                  return ExpenseDetailScreen(expenseId: id);
+                  final extra = state.extra;
+                  final prefill =
+                      extra is BarcodeResult ? extra : null;
+                  return ExpenseDetailScreen(
+                    expenseId: id,
+                    scanPrefill: prefill,
+                  );
                 },
               ),
             ],

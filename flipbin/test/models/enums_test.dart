@@ -1,0 +1,29 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:flipbin/models/enums.dart';
+
+void main() {
+  group('ItemType.fromCategory', () {
+    test('maps video games / consoles to game', () {
+      expect(
+        ItemType.fromCategory('Electronics > Video Games > Nintendo'),
+        ItemType.game,
+      );
+      expect(ItemType.fromCategory('Xbox One Games'), ItemType.game);
+      expect(ItemType.fromCategory('PlayStation 5'), ItemType.game);
+    });
+
+    test('maps blu-ray / dvd / cd / book', () {
+      expect(ItemType.fromCategory('Movies > Blu-ray'), ItemType.bluray);
+      expect(ItemType.fromCategory('DVD Movies'), ItemType.dvd);
+      expect(ItemType.fromCategory('Music > CD'), ItemType.cd);
+      expect(ItemType.fromCategory('Media > Books > Fiction'), ItemType.book);
+    });
+
+    test('falls back to other / label', () {
+      expect(ItemType.fromCategory(null), ItemType.other);
+      expect(ItemType.fromCategory(''), ItemType.other);
+      expect(ItemType.fromCategory('Kitchen Appliances'), ItemType.other);
+      expect(ItemType.fromCategory('Game'), ItemType.game);
+    });
+  });
+}

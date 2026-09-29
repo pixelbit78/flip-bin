@@ -37,6 +37,44 @@ enum ItemType {
     }
     return ItemType.other;
   }
+
+  /// Heuristic mapping from free-form category text (e.g. UPCitemdb
+  /// "Electronics > Video Games > ...") to a FlipBin [ItemType].
+  static ItemType fromCategory(String? category) {
+    if (category == null || category.trim().isEmpty) return ItemType.other;
+    final lower = category.trim().toLowerCase();
+
+    if (lower.contains('blu-ray') ||
+        lower.contains('bluray') ||
+        lower.contains('blu ray')) {
+      return ItemType.bluray;
+    }
+    if (lower.contains('dvd') || lower.contains('video > movies')) {
+      return ItemType.dvd;
+    }
+    if (RegExp(r'\bcd\b').hasMatch(lower) ||
+        lower.contains('compact disc') ||
+        lower.contains('music >')) {
+      return ItemType.cd;
+    }
+    if (lower.contains('video game') ||
+        lower.contains('videogame') ||
+        lower.contains('games') ||
+        lower.contains('nintendo') ||
+        lower.contains('playstation') ||
+        lower.contains('xbox') ||
+        lower.contains('software > games')) {
+      return ItemType.game;
+    }
+    if (lower.contains('book') ||
+        lower.contains('ebook') ||
+        lower.contains('literature') ||
+        lower.contains('media > books')) {
+      return ItemType.book;
+    }
+    // Fall back to label/name match (e.g. category is literally "Game").
+    return ItemType.fromLabel(category);
+  }
 }
 
 /// Status of an inventory item.

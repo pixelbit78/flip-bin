@@ -157,6 +157,7 @@ class GoogleSheetsService {
     'DaysToSell',
     'Comments',
     'Sale Nbr',
+    'Image URL',
   ];
 
   static const expenseHeaders = [
@@ -253,7 +254,7 @@ class GoogleSheetsService {
     if (spreadsheetId == null) {
       spreadsheetId = await client.createSpreadsheet(title, ['Inventory', 'Expenses']);
     } else {
-      await client.clearSheet(spreadsheetId, 'Inventory!A:L');
+      await client.clearSheet(spreadsheetId, 'Inventory!A:M');
       await client.clearSheet(spreadsheetId, 'Expenses!A:J');
     }
 
@@ -277,6 +278,7 @@ class GoogleSheetsService {
           days != null ? '$days' : '',
           item.comments ?? '',
           item.saleNumber ?? '',
+          item.imageUrl ?? '',
         ];
       }),
     ];
@@ -360,6 +362,7 @@ class GoogleSheetsService {
     final personalDateCol = col('Personal Use Date', 8);
     final commentsCol = col('Comments', 10);
     final saleNbrCol = col('Sale Nbr', 11);
+    final imageUrlCol = col('Image URL', 12);
 
     for (var i = 1; i < rows.length; i++) {
       final row = rows[i];
@@ -380,6 +383,7 @@ class GoogleSheetsService {
       }
       final comments = _parseString(getCell(commentsCol));
       final saleNbr = _parseString(getCell(saleNbrCol));
+      final imageUrl = _parseString(getCell(imageUrlCol));
 
       items.add(
         InventoryItemsCompanion.insert(
@@ -394,6 +398,7 @@ class GoogleSheetsService {
           dateSold: Value(dateSold),
           saleNumber: Value(saleNbr),
           comments: Value(comments),
+          imageUrl: Value(imageUrl),
         ),
       );
     }
@@ -496,7 +501,7 @@ class GoogleSheetsService {
     }
 
     final inventoryRows =
-        await client.getValues(spreadsheetId, 'Inventory!A1:L') ?? [];
+        await client.getValues(spreadsheetId, 'Inventory!A1:M') ?? [];
     final expenseRows =
         await client.getValues(spreadsheetId, 'Expenses!A1:J') ?? [];
 

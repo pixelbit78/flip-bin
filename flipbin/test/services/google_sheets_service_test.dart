@@ -36,6 +36,7 @@ void main() {
         'DaysToSell',
         'Comments',
         'Sale Nbr',
+        'Image URL',
       ]),
     );
   });
@@ -123,7 +124,7 @@ void main() {
     await service.syncToSheets(items, expenses);
 
     verifyNever(() => mockClient.createSpreadsheet(any(), any()));
-    verify(() => mockClient.clearSheet(existingId, 'Inventory!A:L')).called(1);
+    verify(() => mockClient.clearSheet(existingId, 'Inventory!A:M')).called(1);
     verify(() => mockClient.clearSheet(existingId, 'Expenses!A:J')).called(1);
     verify(() => mockClient.batchUpdateValues(existingId, any())).called(1);
   });
@@ -143,7 +144,7 @@ void main() {
     const sheetId = 'test-sheet-789';
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => sheetId);
-    when(() => mockClient.getValues(sheetId, 'Inventory!A1:L')).thenAnswer(
+    when(() => mockClient.getValues(sheetId, 'Inventory!A1:M')).thenAnswer(
       (_) async => [
         GoogleSheetsService.inventoryHeaders,
         [
@@ -159,6 +160,7 @@ void main() {
           '17',
           'Great condition',
           'SALE-101',
+          'https://example.com/mario.jpg',
         ],
         [
           '02/10/2026',
@@ -207,6 +209,7 @@ void main() {
     expect(item1.dateSold.value, equals(DateTime(2026, 2, 1)));
     expect(item1.comments.value, equals('Great condition'));
     expect(item1.saleNumber.value, equals('SALE-101'));
+    expect(item1.imageUrl.value, equals('https://example.com/mario.jpg'));
 
     final item2 = data.items[1];
     expect(item2.itemDescription.value, equals('The Matrix Blu-ray'));
@@ -223,14 +226,45 @@ void main() {
     expect(exp1.taxAmount.value, equals(0.85));
   });
 
+
+  test('syncToSheets exports Image URL column', () async {
+    when(() => mockClient.findSpreadsheetId('FlipBin Export'))
+        .thenAnswer((_) async => 'sheet-img');
+    when(() => mockClient.clearSheet(any(), any())).thenAnswer((_) async {});
+    when(() => mockClient.batchUpdateValues(any(), any()))
+        .thenAnswer((_) async {});
+
+    final items = [
+      InventoryItem(
+        id: 1,
+        dateAdded: DateTime(2026, 3, 1),
+        itemDescription: 'Covered Game',
+        type: ItemType.game,
+        cost: 10.0,
+        quantity: 1,
+        status: ItemStatus.active,
+        imageUrl: 'https://cdn.example.com/cover.jpg',
+      ),
+    ];
+
+    await service.syncToSheets(items, []);
+
+    final captured = verify(
+      () => mockClient.batchUpdateValues('sheet-img', captureAny()),
+    ).captured.single as List<sheets.ValueRange>;
+    final inventory = captured.first.values!;
+    expect(inventory.first, equals(GoogleSheetsService.inventoryHeaders));
+    expect(inventory[1].last, equals('https://cdn.example.com/cover.jpg'));
+  });
+
   test('importFromSheets skips rows with empty descriptions', () async {
     const sheetId = 'test-sheet-789';
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => sheetId);
-    when(() => mockClient.getValues(sheetId, 'Inventory!A1:L')).thenAnswer(
+    when(() => mockClient.getValues(sheetId, 'Inventory!A1:M')).thenAnswer(
       (_) async => [
         GoogleSheetsService.inventoryHeaders,
-        ['01/15/2026', '', '', '', '', '', '', '', '', '', '', ''],
+        ['01/15/2026', '', '', '', '', '', '', '', '', '', '', '', ''],
       ],
     );
     when(() => mockClient.getValues(sheetId, 'Expenses!A1:J')).thenAnswer(

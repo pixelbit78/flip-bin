@@ -6,12 +6,20 @@ import 'package:drift/drift.dart' hide isNull, isNotNull, Column;
 import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/expense_provider.dart';
+import 'package:flipbin/services/barcode_lookup_service.dart';
 
 /// Screen for adding or editing a business expense.
 class ExpenseDetailScreen extends ConsumerStatefulWidget {
   final String expenseId;
 
-  const ExpenseDetailScreen({super.key, required this.expenseId});
+  /// Optional barcode lookup result from the scanner (go_router `extra`).
+  final BarcodeResult? scanPrefill;
+
+  const ExpenseDetailScreen({
+    super.key,
+    required this.expenseId,
+    this.scanPrefill,
+  });
 
   bool get isNew => expenseId == 'new';
 
@@ -34,6 +42,8 @@ class _ExpenseDetailScreenState extends ConsumerState<ExpenseDetailScreen> {
   String? _receiptImagePath;
   bool _initialized = false;
 
+  bool _prefillApplied = false;
+
   @override
   void initState() {
     super.initState();
@@ -42,6 +52,22 @@ class _ExpenseDetailScreenState extends ConsumerState<ExpenseDetailScreen> {
     _upcController = TextEditingController();
     _priceController = TextEditingController(text: '0.00');
     _taxController = TextEditingController();
+
+    if (widget.isNew && widget.scanPrefill != null) {
+      _applyScanPrefill(widget.scanPrefill!);
+    }
+  }
+
+  void _applyScanPrefill(BarcodeResult result) {
+    if (_prefillApplied) return;
+    _prefillApplied = true;
+    final name = (result.productName ?? result.description ?? '').trim();
+    if (name.isNotEmpty) {
+      _descController.text = name;
+    }
+    if (result.barcode.trim().isNotEmpty) {
+      _upcController.text = result.barcode.trim();
+    }
   }
 
   @override

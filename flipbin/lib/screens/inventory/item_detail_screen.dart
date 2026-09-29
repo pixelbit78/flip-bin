@@ -6,13 +6,22 @@ import 'package:drift/drift.dart' hide isNull, isNotNull, Column;
 import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
+import 'package:flipbin/services/barcode_lookup_service.dart';
+import 'package:flipbin/utils/cost_field.dart';
 import 'package:flipbin/utils/proxied_image_url.dart';
 
 /// Screen for adding or editing an inventory item.
 class ItemDetailScreen extends ConsumerStatefulWidget {
   final String itemId;
 
-  const ItemDetailScreen({super.key, required this.itemId});
+  /// Optional barcode lookup result from the scanner (go_router `extra`).
+  final BarcodeResult? scanPrefill;
+
+  const ItemDetailScreen({
+    super.key,
+    required this.itemId,
+    this.scanPrefill,
+  });
 
   bool get isNew => itemId == 'new';
 
@@ -29,6 +38,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   late TextEditingController _costController;
   late TextEditingController _saleNumberController;
   late TextEditingController _commentsController;
+  late FocusNode _costFocusNode;
 
   ItemType _type = ItemType.game;
   ItemStatus _status = ItemStatus.active;
@@ -37,6 +47,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   DateTime? _dateSold;
   String? _imageUrl;
   bool _initialized = false;
+  bool _prefillApplied = false;
 
   @override
   void initState() {
@@ -47,10 +58,18 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     _costController = TextEditingController(text: '0.00');
     _saleNumberController = TextEditingController();
     _commentsController = TextEditingController();
+    _costFocusNode = FocusNode();
+    _costFocusNode.addListener(_onCostFocusChange);
+
+    if (widget.isNew && widget.scanPrefill != null) {
+      _applyScanPrefill(widget.scanPrefill!);
+    }
   }
 
   @override
   void dispose() {
+    _costFocusNode.removeListener(_onCostFocusChange);
+    _costFocusNode.dispose();
     _descController.dispose();
     _barcodeController.dispose();
     _platformController.dispose();
@@ -58,6 +77,34 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     _saleNumberController.dispose();
     _commentsController.dispose();
     super.dispose();
+  }
+
+  /// Clear Cost when focusing a zero / 0.00 value so entry is easy;
+  /// keep any value already greater than zero.
+  void _onCostFocusChange() {
+    if (!_costFocusNode.hasFocus) return;
+    if (shouldClearCostOnFocus(_costController.text)) {
+      _costController.clear();
+    }
+  }
+
+  void _applyScanPrefill(BarcodeResult result) {
+    if (_prefillApplied) return;
+    _prefillApplied = true;
+    final name = (result.productName ?? result.description ?? '').trim();
+    if (name.isNotEmpty) {
+      _descController.text = name;
+    }
+    if (result.barcode.trim().isNotEmpty) {
+      _barcodeController.text = result.barcode.trim();
+    }
+    final image = proxiedImageUrl(result.imageUrl) ?? result.imageUrl?.trim();
+    if (image != null && image.isNotEmpty) {
+      _imageUrl = image;
+    }
+    if (result.category != null && result.category!.trim().isNotEmpty) {
+      _type = ItemType.fromCategory(result.category);
+    }
   }
 
   void _populateFromItem(InventoryItem item) {
@@ -77,6 +124,51 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     _imageUrl = item.imageUrl;
   }
 
+  Future<void> _editCoverUrl() async {
+    final controller = TextEditingController(text: _imageUrl ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cover image URL'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'https://…',
+            helperText:
+                'Stores the durable HTTPS URL on the item (and Sheets). '
+                'UPCitemdb covers are preferred when available.',
+          ),
+          keyboardType: TextInputType.url,
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(''),
+            child: const Text('Clear'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || result == null) return;
+    final trimmed = result.trim();
+    setState(() {
+      if (trimmed.isEmpty) {
+        _imageUrl = null;
+      } else {
+        _imageUrl = proxiedImageUrl(trimmed) ?? trimmed;
+      }
+    });
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -91,13 +183,21 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
           type: _type,
           cost: cost,
           quantity: Value(_quantity),
-          platform: Value(_platformController.text.trim().isEmpty ? null : _platformController.text.trim()),
+          platform: Value(_platformController.text.trim().isEmpty
+              ? null
+              : _platformController.text.trim()),
           status: _status,
           dateSold: Value(_dateSold),
-          saleNumber: Value(_saleNumberController.text.trim().isEmpty ? null : _saleNumberController.text.trim()),
-          comments: Value(_commentsController.text.trim().isEmpty ? null : _commentsController.text.trim()),
+          saleNumber: Value(_saleNumberController.text.trim().isEmpty
+              ? null
+              : _saleNumberController.text.trim()),
+          comments: Value(_commentsController.text.trim().isEmpty
+              ? null
+              : _commentsController.text.trim()),
           imageUrl: Value(_imageUrl),
-          barcode: Value(_barcodeController.text.trim().isEmpty ? null : _barcodeController.text.trim()),
+          barcode: Value(_barcodeController.text.trim().isEmpty
+              ? null
+              : _barcodeController.text.trim()),
         ),
       );
     } else {
@@ -110,13 +210,21 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
           type: _type,
           cost: cost,
           quantity: _quantity,
-          platform: _platformController.text.trim().isEmpty ? null : _platformController.text.trim(),
+          platform: _platformController.text.trim().isEmpty
+              ? null
+              : _platformController.text.trim(),
           status: _status,
           dateSold: _dateSold,
-          saleNumber: _saleNumberController.text.trim().isEmpty ? null : _saleNumberController.text.trim(),
-          comments: _commentsController.text.trim().isEmpty ? null : _commentsController.text.trim(),
+          saleNumber: _saleNumberController.text.trim().isEmpty
+              ? null
+              : _saleNumberController.text.trim(),
+          comments: _commentsController.text.trim().isEmpty
+              ? null
+              : _commentsController.text.trim(),
           imageUrl: _imageUrl,
-          barcode: _barcodeController.text.trim().isEmpty ? null : _barcodeController.text.trim(),
+          barcode: _barcodeController.text.trim().isEmpty
+              ? null
+              : _barcodeController.text.trim(),
         ),
       );
     }
@@ -163,6 +271,68 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     }
   }
 
+  Widget _buildCoverSection() {
+    final displayUrl = proxiedImageUrl(_imageUrl);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Center(
+          child: displayUrl != null
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    displayUrl,
+                    height: 160,
+                    fit: BoxFit.cover,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
+                    errorBuilder: (_, __, ___) => _coverPlaceholder(),
+                  ),
+                )
+              : _coverPlaceholder(),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TextButton.icon(
+              onPressed: _editCoverUrl,
+              icon: Icon(displayUrl != null ? Icons.edit : Icons.add_photo_alternate),
+              label: Text(displayUrl != null ? 'Change cover' : 'Add cover'),
+            ),
+            if (displayUrl != null)
+              TextButton(
+                onPressed: () => setState(() => _imageUrl = null),
+                child: const Text('Remove'),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _coverPlaceholder() {
+    return Container(
+      height: 120,
+      width: 120,
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.image_outlined, size: 40, color: Colors.white38),
+          SizedBox(height: 4),
+          Text(
+            'No cover',
+            style: TextStyle(color: Colors.white38, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.isNew) {
@@ -193,19 +363,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (proxiedImageUrl(_imageUrl) != null)
-                Center(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.network(
-                      proxiedImageUrl(_imageUrl)!,
-                      height: 160,
-                      fit: BoxFit.cover,
-                      webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                    ),
-                  ),
-                ),
+              _buildCoverSection(),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _descController,
@@ -222,10 +380,12 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<ItemType>(
+                      key: ValueKey('type-$_type'),
                       initialValue: _type,
                       decoration: const InputDecoration(labelText: 'Type'),
                       items: ItemType.values
-                          .map((t) => DropdownMenuItem(value: t, child: Text(t.label)))
+                          .map((t) =>
+                              DropdownMenuItem(value: t, child: Text(t.label)))
                           .toList(),
                       onChanged: (val) {
                         if (val != null) setState(() => _type = val);
@@ -235,10 +395,12 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<ItemStatus>(
+                      key: ValueKey('status-$_status'),
                       initialValue: _status,
                       decoration: const InputDecoration(labelText: 'Status'),
                       items: ItemStatus.values
-                          .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
+                          .map((s) =>
+                              DropdownMenuItem(value: s, child: Text(s.label)))
                           .toList(),
                       onChanged: (val) {
                         if (val != null) {
@@ -260,11 +422,13 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                   Expanded(
                     child: TextFormField(
                       controller: _costController,
+                      focusNode: _costFocusNode,
                       decoration: const InputDecoration(
                         labelText: 'Cost (\$)',
                         prefixText: '\$ ',
                       ),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) {
                           return 'Cost is required';
@@ -283,9 +447,13 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                         const Text('Qty: '),
                         IconButton(
                           icon: const Icon(Icons.remove_circle_outline),
-                          onPressed: _quantity > 1 ? () => setState(() => _quantity--) : null,
+                          onPressed: _quantity > 1
+                              ? () => setState(() => _quantity--)
+                              : null,
                         ),
-                        Text('$_quantity', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text('$_quantity',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold)),
                         IconButton(
                           icon: const Icon(Icons.add_circle_outline),
                           onPressed: () => setState(() => _quantity++),
@@ -303,7 +471,8 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _platformController,
-                decoration: const InputDecoration(labelText: 'Platform (e.g. PS5, Xbox)'),
+                decoration: const InputDecoration(
+                    labelText: 'Platform (e.g. PS5, Xbox)'),
               ),
               const SizedBox(height: 16),
               ListTile(
@@ -324,7 +493,9 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Date Sold'),
-                subtitle: Text(_dateSold != null ? dateFormat.format(_dateSold!) : 'Not Sold'),
+                subtitle: Text(_dateSold != null
+                    ? dateFormat.format(_dateSold!)
+                    : 'Not Sold'),
                 trailing: const Icon(Icons.calendar_today),
                 onTap: () async {
                   final picked = await showDatePicker(
@@ -339,7 +510,8 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _saleNumberController,
-                decoration: const InputDecoration(labelText: 'Sale Number / Order ID'),
+                decoration:
+                    const InputDecoration(labelText: 'Sale Number / Order ID'),
               ),
               const SizedBox(height: 16),
               TextFormField(

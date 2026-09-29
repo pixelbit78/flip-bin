@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:flipbin/providers/scanner_provider.dart';
+import 'package:flipbin/services/barcode_lookup_service.dart';
 import 'package:flipbin/utils/proxied_image_url.dart';
 
 /// Screen providing live camera barcode scanning with manual UPC lookup fallback.
@@ -428,7 +429,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                             Expanded(
                               child: ElevatedButton.icon(
                                 onPressed: () {
-                                  context.go('/inventory/new');
+                                  context.go(
+                                    '/inventory/new',
+                                    extra: scanState.result,
+                                  );
                                 },
                                 icon: const Icon(Icons.add_box),
                                 label: const Text('Add to Inventory'),
@@ -438,7 +442,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                             Expanded(
                               child: OutlinedButton.icon(
                                 onPressed: () {
-                                  context.go('/expenses/new');
+                                  context.go(
+                                    '/expenses/new',
+                                    extra: scanState.result,
+                                  );
                                 },
                                 icon: const Icon(Icons.post_add),
                                 label: const Text('Add to Expense'),
@@ -470,7 +477,18 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                     ),
                     const SizedBox(height: 12),
                     ElevatedButton(
-                      onPressed: () => context.go('/inventory/new'),
+                      onPressed: () {
+                        final raw = scanState.rawBarcode;
+                        context.go(
+                          '/inventory/new',
+                          extra: raw != null && raw.isNotEmpty
+                              ? BarcodeResult(
+                                  barcode: raw,
+                                  source: 'manual',
+                                )
+                              : null,
+                        );
+                      },
                       child: const Text('Add Manually to Inventory'),
                     ),
                   ],
