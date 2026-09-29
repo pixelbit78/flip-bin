@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/screens/dashboard/dashboard_screen.dart';
 
 import 'package:flipbin/screens/expenses/expense_detail_screen.dart';
@@ -10,6 +12,8 @@ import 'package:flipbin/screens/inventory/item_detail_screen.dart';
 import 'package:flipbin/screens/scanner/scanner_screen.dart';
 import 'package:flipbin/screens/settings/settings_screen.dart';
 import 'package:flipbin/services/barcode_lookup_service.dart';
+import 'package:flipbin/providers/expense_provider.dart';
+import 'package:flipbin/providers/inventory_provider.dart';
 
 /// FlipBin router configuration with bottom navigation shell.
 class FlipBinRouter {
@@ -78,7 +82,10 @@ class FlipBinRouter {
 }
 
 /// Shell widget providing bottom navigation bar.
-class ScaffoldWithNavBar extends StatelessWidget {
+///
+/// Summary providers are Drift [StreamProvider]s and stay live; tab taps also
+/// invalidate them as a thin backup (including re-tapping the current tab).
+class ScaffoldWithNavBar extends ConsumerWidget {
   const ScaffoldWithNavBar({super.key, required this.child});
 
   final Widget child;
@@ -91,7 +98,18 @@ class ScaffoldWithNavBar extends StatelessWidget {
     return 0;
   }
 
-  void _onItemTapped(int index, BuildContext context) {
+  void _refreshSummaryProviders(WidgetRef ref) {
+    for (final status in ItemStatus.values) {
+      ref.invalidate(inventoryCountProvider(status));
+      ref.invalidate(inventoryTotalCostProvider(status));
+    }
+    ref.invalidate(expenseTotalProvider);
+    final now = DateTime.now();
+    ref.invalidate(expenseMonthTotalProvider(DateTime(now.year, now.month, 1)));
+  }
+
+  void _onItemTapped(int index, BuildContext context, WidgetRef ref) {
+    _refreshSummaryProviders(ref);
     switch (index) {
       case 0:
         context.go('/');
@@ -109,12 +127,12 @@ class ScaffoldWithNavBar extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       body: child,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _calculateSelectedIndex(context),
-        onTap: (index) => _onItemTapped(index, context),
+        onTap: (index) => _onItemTapped(index, context, ref),
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home),

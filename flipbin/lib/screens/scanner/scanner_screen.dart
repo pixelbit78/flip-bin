@@ -6,11 +6,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:intl/intl.dart';
+import 'package:flipbin/database/database.dart';
+import 'package:flipbin/models/enums.dart';
+import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/providers/scanner_provider.dart';
 import 'package:flipbin/services/barcode_lookup_service.dart';
 import 'package:flipbin/services/camera_permission_store.dart';
 import 'package:flipbin/utils/proxied_image_url.dart';
 import 'package:flipbin/utils/web_camera_permission.dart';
+import 'package:flipbin/widgets/status_badge.dart';
 
 /// Screen providing live camera barcode scanning with manual UPC lookup fallback.
 class ScannerScreen extends ConsumerStatefulWidget {
@@ -679,9 +684,119 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                   ],
                 ),
               ),
+            // Inventory matches for the current UPC (independent of catalog lookup).
+            if (scanState.rawBarcode != null &&
+                scanState.rawBarcode!.trim().isNotEmpty)
+              _buildInventoryMatches(scanState.rawBarcode!.trim()),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildInventoryMatches(String barcode) {
+    final matchesAsync = ref.watch(inventoryMatchesByBarcodeProvider(barcode));
+    return matchesAsync.when(
+      data: (items) {
+        if (items.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'In your inventory (${items.length})',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.white70,
+                ),
+              ),
+              const SizedBox(height: 8),
+              for (final item in items) _buildInventoryMatchRow(item),
+            ],
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  Widget _buildInventoryMatchRow(InventoryItem item) {
+    final dateFmt = DateFormat.yMMMd();
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.itemDescription,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      StatusBadge(status: item.status),
+                      Text(
+                        '\$${item.cost.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                      Text(
+                        'Added ${dateFmt.format(item.dateAdded)}',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: () => _saveAsSold(item),
+              child: const Text('Save as sold'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveAsSold(InventoryItem item) async {
+    try {
+      await ref.read(inventoryControllerProvider).updateInventoryItem(
+            item.copyWith(status: ItemStatus.sold),
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Marked "${item.itemDescription}" as sold'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not mark as sold: $e')),
+      );
+    }
   }
 }

@@ -37,7 +37,7 @@ void main() {
             (ref, filter) => Stream.value(sampleExpenses),
           ),
           expenseMonthTotalProvider.overrideWith(
-            (ref, month) => Future.value(75.00),
+            (ref, month) => Stream.value(75.00),
           ),
         ],
         child: const MaterialApp(
@@ -71,7 +71,7 @@ void main() {
             },
           ),
           expenseMonthTotalProvider.overrideWith(
-            (ref, month) => Future.value(75.00),
+            (ref, month) => Stream.value(75.00),
           ),
         ],
         child: const MaterialApp(
@@ -98,7 +98,7 @@ void main() {
             (ref, filter) => Stream.value(sampleExpenses),
           ),
           expenseMonthTotalProvider.overrideWith(
-            (ref, month) => Future.value(75.00),
+            (ref, month) => Stream.value(75.00),
           ),
         ],
         child: const MaterialApp(

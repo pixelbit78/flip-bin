@@ -15,11 +15,11 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          inventoryCountProvider(ItemStatus.active).overrideWith((ref) => Future.value(47)),
-          inventoryCountProvider(ItemStatus.sold).overrideWith((ref) => Future.value(312)),
-          inventoryTotalCostProvider(ItemStatus.active).overrideWith((ref) => Future.value(1284.00)),
-          expenseMonthTotalProvider(currentMonth).overrideWith((ref) => Future.value(87.42)),
-          expenseTotalProvider.overrideWith((ref) => Future.value(450.00)),
+          inventoryCountProvider(ItemStatus.active).overrideWith((ref) => Stream.value(47)),
+          inventoryCountProvider(ItemStatus.sold).overrideWith((ref) => Stream.value(312)),
+          inventoryTotalCostProvider(ItemStatus.active).overrideWith((ref) => Stream.value(1284.00)),
+          expenseMonthTotalProvider(currentMonth).overrideWith((ref) => Stream.value(87.42)),
+          expenseTotalProvider.overrideWith((ref) => Stream.value(450.00)),
         ],
         child: const MaterialApp(
           home: DashboardScreen(),
@@ -36,6 +36,18 @@ void main() {
     expect(find.text('\$1284.00'), findsOneWidget);
     expect(find.text('\$87.42'), findsOneWidget);
   });
+
+  List<Override> _dashboardOverrides() {
+    final now = DateTime.now();
+    final currentMonth = DateTime(now.year, now.month, 1);
+    return [
+      inventoryCountProvider(ItemStatus.active).overrideWith((ref) => Stream.value(0)),
+      inventoryCountProvider(ItemStatus.sold).overrideWith((ref) => Stream.value(0)),
+      inventoryTotalCostProvider(ItemStatus.active).overrideWith((ref) => Stream.value(0.0)),
+      expenseMonthTotalProvider(currentMonth).overrideWith((ref) => Stream.value(0.0)),
+      expenseTotalProvider.overrideWith((ref) => Stream.value(0.0)),
+    ];
+  }
 
   testWidgets('scan barcode button navigates to /scan', (tester) async {
     String? navigatedRoute;
@@ -66,6 +78,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        overrides: _dashboardOverrides(),
         child: MaterialApp.router(
           routerConfig: router,
         ),
@@ -104,6 +117,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        overrides: _dashboardOverrides(),
         child: MaterialApp.router(
           routerConfig: router,
         ),

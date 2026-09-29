@@ -35,17 +35,17 @@ final expenseListProvider =
   );
 });
 
-/// Total expenses for a given month.
+/// Live total expenses for a given month (Drift stream).
 final expenseMonthTotalProvider =
-    FutureProvider.family<double, DateTime>((ref, month) {
+    StreamProvider.family<double, DateTime>((ref, month) {
   final db = ref.watch(databaseProvider);
-  return db.expensesDao.totalForMonth(month);
+  return db.expensesDao.watchTotalForMonth(month);
 });
 
-/// Total of all expenses.
-final expenseTotalProvider = FutureProvider<double>((ref) {
+/// Live total of all expenses (Drift stream).
+final expenseTotalProvider = StreamProvider<double>((ref) {
   final db = ref.watch(databaseProvider);
-  return db.expensesDao.totalAll();
+  return db.expensesDao.watchTotalAll();
 });
 
 /// Single expense by ID.
@@ -79,6 +79,7 @@ class ExpenseController {
   }
 
   void _invalidateAll() {
+    // Streams already live-update; thin backup for family caches.
     _ref.invalidate(expenseTotalProvider);
   }
 }

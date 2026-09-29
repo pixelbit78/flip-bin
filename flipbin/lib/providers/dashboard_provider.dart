@@ -16,20 +16,33 @@ class InventorySummaryMetrics {
   });
 }
 
-/// Provider for inventory summary data shown on dashboard.
+/// Live inventory summary (composes Drift-backed stream providers).
 final dashboardInventorySummaryProvider =
-    FutureProvider<InventorySummaryMetrics>((ref) async {
-  final activeCount =
-      await ref.watch(inventoryCountProvider(ItemStatus.active).future);
-  final soldCount =
-      await ref.watch(inventoryCountProvider(ItemStatus.sold).future);
+    Provider<AsyncValue<InventorySummaryMetrics>>((ref) {
+  final activeCount = ref.watch(inventoryCountProvider(ItemStatus.active));
+  final soldCount = ref.watch(inventoryCountProvider(ItemStatus.sold));
   final totalInvested =
-      await ref.watch(inventoryTotalCostProvider(ItemStatus.active).future);
+      ref.watch(inventoryTotalCostProvider(ItemStatus.active));
 
-  return InventorySummaryMetrics(
-    activeCount: activeCount,
-    soldCount: soldCount,
-    totalInvested: totalInvested,
+  if (activeCount.hasError) {
+    return AsyncValue.error(activeCount.error!, activeCount.stackTrace!);
+  }
+  if (soldCount.hasError) {
+    return AsyncValue.error(soldCount.error!, soldCount.stackTrace!);
+  }
+  if (totalInvested.hasError) {
+    return AsyncValue.error(totalInvested.error!, totalInvested.stackTrace!);
+  }
+  if (!activeCount.hasValue || !soldCount.hasValue || !totalInvested.hasValue) {
+    return const AsyncValue.loading();
+  }
+
+  return AsyncValue.data(
+    InventorySummaryMetrics(
+      activeCount: activeCount.requireValue,
+      soldCount: soldCount.requireValue,
+      totalInvested: totalInvested.requireValue,
+    ),
   );
 });
 
@@ -44,17 +57,28 @@ class ExpenseSummaryMetrics {
   });
 }
 
-/// Provider for expense summary data shown on dashboard.
+/// Live expense summary (composes Drift-backed stream providers).
 final dashboardExpenseSummaryProvider =
-    FutureProvider<ExpenseSummaryMetrics>((ref) async {
+    Provider<AsyncValue<ExpenseSummaryMetrics>>((ref) {
   final now = DateTime.now();
   final currentMonth = DateTime(now.year, now.month, 1);
-  final monthTotal =
-      await ref.watch(expenseMonthTotalProvider(currentMonth).future);
-  final allTimeTotal = await ref.watch(expenseTotalProvider.future);
+  final monthTotal = ref.watch(expenseMonthTotalProvider(currentMonth));
+  final allTimeTotal = ref.watch(expenseTotalProvider);
 
-  return ExpenseSummaryMetrics(
-    monthTotal: monthTotal,
-    allTimeTotal: allTimeTotal,
+  if (monthTotal.hasError) {
+    return AsyncValue.error(monthTotal.error!, monthTotal.stackTrace!);
+  }
+  if (allTimeTotal.hasError) {
+    return AsyncValue.error(allTimeTotal.error!, allTimeTotal.stackTrace!);
+  }
+  if (!monthTotal.hasValue || !allTimeTotal.hasValue) {
+    return const AsyncValue.loading();
+  }
+
+  return AsyncValue.data(
+    ExpenseSummaryMetrics(
+      monthTotal: monthTotal.requireValue,
+      allTimeTotal: allTimeTotal.requireValue,
+    ),
   );
 });

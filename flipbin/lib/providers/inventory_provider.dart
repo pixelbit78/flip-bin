@@ -33,18 +33,25 @@ final inventoryListProvider =
   );
 });
 
-/// Count of inventory items by status.
+/// Live count of inventory items by status (Drift stream).
 final inventoryCountProvider =
-    FutureProvider.family<int, ItemStatus>((ref, status) {
+    StreamProvider.family<int, ItemStatus>((ref, status) {
   final db = ref.watch(databaseProvider);
-  return db.inventoryItemsDao.countByStatus(status);
+  return db.inventoryItemsDao.watchCountByStatus(status);
 });
 
-/// Total cost of inventory items by status.
+/// Live total cost of inventory items by status (Drift stream).
 final inventoryTotalCostProvider =
-    FutureProvider.family<double, ItemStatus>((ref, status) {
+    StreamProvider.family<double, ItemStatus>((ref, status) {
   final db = ref.watch(databaseProvider);
-  return db.inventoryItemsDao.totalCostByStatus(status);
+  return db.inventoryItemsDao.watchTotalCostByStatus(status);
+});
+
+/// Live active/personal inventory rows matching a scanned/manual UPC.
+final inventoryMatchesByBarcodeProvider =
+    StreamProvider.family<List<InventoryItem>, String>((ref, barcode) {
+  final db = ref.watch(databaseProvider);
+  return db.inventoryItemsDao.watchByBarcodeActiveOrPersonal(barcode);
 });
 
 /// Single inventory item by ID.
@@ -83,7 +90,8 @@ class InventoryController {
   }
 
   void _invalidateAll() {
-    // Invalidate count and cost providers for all statuses
+    // Streams already live-update from Drift; keep invalidation as a thin
+    // backup for any remaining FutureProviders / family caches.
     for (final status in ItemStatus.values) {
       _ref.invalidate(inventoryCountProvider(status));
       _ref.invalidate(inventoryTotalCostProvider(status));

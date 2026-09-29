@@ -97,6 +97,24 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
     return (delete(inventoryItems)..where((tbl) => tbl.id.equals(id))).go();
   }
 
+  /// Active or personal inventory rows matching [barcode] (trimmed).
+  /// Sold items are excluded so Save-as-sold removes them from this stream.
+  Stream<List<InventoryItem>> watchByBarcodeActiveOrPersonal(String barcode) {
+    final normalized = barcode.trim();
+    if (normalized.isEmpty) {
+      return Stream.value(const []);
+    }
+    final query = select(inventoryItems)
+      ..where(
+        (tbl) =>
+            tbl.barcode.equals(normalized) &
+            (tbl.status.equalsValue(ItemStatus.active) |
+                tbl.status.equalsValue(ItemStatus.personal)),
+      )
+      ..orderBy([(tbl) => OrderingTerm.desc(tbl.dateAdded)]);
+    return query.watch();
+  }
+
   Future<int> countByStatus(ItemStatus status) async {
     final countExp = inventoryItems.id.count();
     final query = selectOnly(inventoryItems)
@@ -106,6 +124,17 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
     return row.read(countExp) ?? 0;
   }
 
+  Stream<int> watchCountByStatus(ItemStatus status) {
+    final countExp = inventoryItems.id.count();
+    final query = selectOnly(inventoryItems)
+      ..addColumns([countExp])
+      ..where(inventoryItems.status.equalsValue(status));
+    return query.watch().map((rows) {
+      if (rows.isEmpty) return 0;
+      return rows.first.read(countExp) ?? 0;
+    });
+  }
+
   Future<double> totalCostByStatus(ItemStatus status) async {
     final costExp = inventoryItems.cost.sum();
     final query = selectOnly(inventoryItems)
@@ -113,6 +142,17 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
       ..where(inventoryItems.status.equalsValue(status));
     final row = await query.getSingle();
     return row.read(costExp) ?? 0.0;
+  }
+
+  Stream<double> watchTotalCostByStatus(ItemStatus status) {
+    final costExp = inventoryItems.cost.sum();
+    final query = selectOnly(inventoryItems)
+      ..addColumns([costExp])
+      ..where(inventoryItems.status.equalsValue(status));
+    return query.watch().map((rows) {
+      if (rows.isEmpty) return 0.0;
+      return rows.first.read(costExp) ?? 0.0;
+    });
   }
 
   Future<List<InventoryItem>> getAllForExport() {
@@ -178,9 +218,27 @@ class ExpensesDao extends DatabaseAccessor<FlipBinDatabase> with _$ExpensesDaoMi
     return items.fold<double>(0.0, (sum, item) => sum + item.total);
   }
 
+  Stream<double> watchTotalForMonth(DateTime month) {
+    final startOfMonth = DateTime(month.year, month.month, 1);
+    final endOfMonth = DateTime(month.year, month.month + 1, 1);
+    final query = select(expenses)
+      ..where((tbl) =>
+          tbl.date.isBiggerOrEqualValue(startOfMonth) &
+          tbl.date.isSmallerThanValue(endOfMonth));
+    return query.watch().map(
+          (items) => items.fold<double>(0.0, (sum, item) => sum + item.total),
+        );
+  }
+
   Future<double> totalAll() async {
     final items = await select(expenses).get();
     return items.fold<double>(0.0, (sum, item) => sum + item.total);
+  }
+
+  Stream<double> watchTotalAll() {
+    return select(expenses).watch().map(
+          (items) => items.fold<double>(0.0, (sum, item) => sum + item.total),
+        );
   }
 
   Future<List<Expense>> getAllForExport() {

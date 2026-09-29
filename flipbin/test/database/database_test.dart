@@ -76,6 +76,60 @@ void main() {
       expect(soldList.first.itemDescription, equals('Item 3'));
     });
 
+    test('watchByBarcodeActiveOrPersonal returns active/personal only', () async {
+      final now = DateTime.now();
+      const upc = '012345678901';
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: now,
+          itemDescription: 'Active Copy',
+          type: ItemType.game,
+          cost: 5.0,
+          status: ItemStatus.active,
+          barcode: const Value(upc),
+        ),
+      );
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: now,
+          itemDescription: 'Personal Copy',
+          type: ItemType.game,
+          cost: 0.0,
+          status: ItemStatus.personal,
+          barcode: const Value(upc),
+        ),
+      );
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: now,
+          itemDescription: 'Sold Copy',
+          type: ItemType.game,
+          cost: 5.0,
+          status: ItemStatus.sold,
+          barcode: const Value(upc),
+        ),
+      );
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: now,
+          itemDescription: 'Other UPC',
+          type: ItemType.dvd,
+          cost: 3.0,
+          status: ItemStatus.active,
+          barcode: const Value('999999999999'),
+        ),
+      );
+
+      final matches = await db.inventoryItemsDao
+          .watchByBarcodeActiveOrPersonal(' 012345678901 ')
+          .first;
+      expect(matches.length, equals(2));
+      expect(
+        matches.map((e) => e.itemDescription).toSet(),
+        equals({'Active Copy', 'Personal Copy'}),
+      );
+    });
+
     test('watchAll filters by search query', () async {
       final now = DateTime.now();
       await db.inventoryItemsDao.insertItem(
