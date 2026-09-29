@@ -8,6 +8,9 @@ import 'package:flipbin/services/google_sheets_service.dart';
 /// State of Google Sheets synchronization.
 class SyncState {
   final GoogleSignInAccount? account;
+  final String? restoredEmail;
+  final String? restoredDisplayName;
+  final bool isRestoring;
   final bool isSyncing;
   final bool isImporting;
   final DateTime? lastSyncedAt;
@@ -18,6 +21,9 @@ class SyncState {
 
   const SyncState({
     this.account,
+    this.restoredEmail,
+    this.restoredDisplayName,
+    this.isRestoring = false,
     this.isSyncing = false,
     this.isImporting = false,
     this.lastSyncedAt,
@@ -27,8 +33,20 @@ class SyncState {
     this.spreadsheetId,
   });
 
+  bool get isSignedIn =>
+      account != null ||
+      (restoredEmail != null && restoredEmail!.isNotEmpty);
+
+  String? get displayEmail => account?.email ?? restoredEmail;
+
+  String? get displayName =>
+      account?.displayName ?? restoredDisplayName ?? account?.email;
+
   SyncState copyWith({
     GoogleSignInAccount? account,
+    String? restoredEmail,
+    String? restoredDisplayName,
+    bool? isRestoring,
     bool? isSyncing,
     bool? isImporting,
     DateTime? lastSyncedAt,
@@ -38,10 +56,17 @@ class SyncState {
     String? spreadsheetId,
     bool clearError = false,
     bool clearAccount = false,
+    bool clearRestored = false,
     bool clearSpreadsheetId = false,
   }) {
     return SyncState(
       account: clearAccount ? null : (account ?? this.account),
+      restoredEmail:
+          clearRestored ? null : (restoredEmail ?? this.restoredEmail),
+      restoredDisplayName: clearRestored
+          ? null
+          : (restoredDisplayName ?? this.restoredDisplayName),
+      isRestoring: isRestoring ?? this.isRestoring,
       isSyncing: isSyncing ?? this.isSyncing,
       isImporting: isImporting ?? this.isImporting,
       lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
@@ -64,21 +89,63 @@ class SyncNotifier extends StateNotifier<SyncState> {
   final GoogleSheetsService _sheetsService;
   final Ref _ref;
 
-  SyncNotifier(this._sheetsService, this._ref) : super(const SyncState());
+  SyncNotifier(this._sheetsService, this._ref) : super(const SyncState()) {
+    // Fire-and-forget cold-start restore (GIS silent + cached token).
+    restoreSession();
+  }
 
   void setClientId(String clientId) {
     _sheetsService.configureClientId(clientId);
     state = state.copyWith(clientId: clientId, clearError: true);
   }
 
+  Future<void> restoreSession() async {
+    state = state.copyWith(isRestoring: true, clearError: true);
+    try {
+      final persisted = await _sheetsService.sessionStore.load();
+      if (persisted != null) {
+        state = state.copyWith(
+          restoredEmail: persisted.email,
+          restoredDisplayName: persisted.displayName,
+          spreadsheetId: persisted.spreadsheetId,
+          lastSyncedAt: persisted.lastSyncedAt,
+          lastImportedAt: persisted.lastImportedAt,
+        );
+      }
+
+      final account = await _sheetsService.signInSilently();
+      if (account != null) {
+        state = state.copyWith(
+          account: account,
+          restoredEmail: account.email,
+          restoredDisplayName: account.displayName,
+          isRestoring: false,
+          clearError: true,
+        );
+      } else {
+        state = state.copyWith(isRestoring: false);
+      }
+    } catch (e) {
+      state = state.copyWith(
+        isRestoring: false,
+        error: 'Session restore failed: $e',
+      );
+    }
+  }
+
   Future<void> signIn() async {
     try {
       final account = await _sheetsService.signIn();
-      state = state.copyWith(account: account, clearError: true);
+      state = state.copyWith(
+        account: account,
+        restoredEmail: account?.email,
+        restoredDisplayName: account?.displayName,
+        clearError: true,
+      );
     } catch (e) {
       state = state.copyWith(
         error:
-            'Google Sign-In failed: $e\n\nTip: On Web, Google Sign-In requires an OAuth Client ID from Google Cloud Console with http://localhost:8080 authorized.',
+            'Google Sign-In failed: $e\n\nTip: On Web, Google Sign-In requires an OAuth Client ID from Google Cloud Console with your site origin authorized.',
       );
     }
   }
@@ -86,6 +153,8 @@ class SyncNotifier extends StateNotifier<SyncState> {
   void signInDemo() {
     state = state.copyWith(
       account: DemoGoogleSignInAccount(),
+      restoredEmail: 'demo.reseller@gmail.com',
+      restoredDisplayName: 'Demo Reseller',
       clearError: true,
     );
   }
@@ -93,11 +162,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
   Future<void> signOut() async {
     try {
       await _sheetsService.signOut();
-      state = state.copyWith(
-        clearAccount: true,
-        clearError: true,
-        clearSpreadsheetId: true,
-      );
+      state = const SyncState();
     } catch (e) {
       state = state.copyWith(error: 'Sign out failed: $e');
     }
@@ -109,6 +174,10 @@ class SyncNotifier extends StateNotifier<SyncState> {
 
   Future<void> sync() async {
     if (state.isSyncing || state.isImporting) return;
+    if (!state.isSignedIn) {
+      state = state.copyWith(error: 'Please sign in with Google first.');
+      return;
+    }
 
     state = state.copyWith(isSyncing: true, clearError: true);
     try {
@@ -122,9 +191,15 @@ class SyncNotifier extends StateNotifier<SyncState> {
         existingSpreadsheetId: state.spreadsheetId,
       );
 
+      final now = DateTime.now();
+      await _sheetsService.sessionStore.saveLastSyncedAt(now);
+      if (sheetId != null) {
+        await _sheetsService.sessionStore.saveSpreadsheetId(sheetId);
+      }
+
       state = state.copyWith(
         isSyncing: false,
-        lastSyncedAt: DateTime.now(),
+        lastSyncedAt: now,
         spreadsheetId: sheetId,
         clearError: true,
       );
@@ -138,6 +213,10 @@ class SyncNotifier extends StateNotifier<SyncState> {
 
   Future<({int itemsCount, int expensesCount})?> import() async {
     if (state.isSyncing || state.isImporting) return null;
+    if (!state.isSignedIn) {
+      state = state.copyWith(error: 'Please sign in with Google first.');
+      return null;
+    }
 
     state = state.copyWith(isImporting: true, clearError: true);
     try {
@@ -149,13 +228,21 @@ class SyncNotifier extends StateNotifier<SyncState> {
       await db.inventoryItemsDao.replaceAll(importData.items);
       await db.expensesDao.replaceAll(importData.expenses);
 
-      // Invalidate stream list providers to immediately update active screens
       _ref.invalidate(inventoryListProvider);
       _ref.invalidate(expenseListProvider);
 
+      final now = DateTime.now();
+      await _sheetsService.sessionStore.saveLastImportedAt(now);
+      if (importData.spreadsheetId != null) {
+        await _sheetsService.sessionStore.saveSpreadsheetId(
+          importData.spreadsheetId,
+        );
+      }
+
       state = state.copyWith(
         isImporting: false,
-        lastImportedAt: DateTime.now(),
+        lastImportedAt: now,
+        spreadsheetId: importData.spreadsheetId ?? state.spreadsheetId,
         clearError: true,
       );
 

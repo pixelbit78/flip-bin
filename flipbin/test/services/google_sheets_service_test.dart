@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:flipbin/database/database.dart';
@@ -12,10 +13,13 @@ void main() {
   late GoogleSheetsService service;
 
   setUpAll(() {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
     registerFallbackValue(<sheets.ValueRange>[]);
   });
 
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     mockClient = MockSheetsClient();
     service = GoogleSheetsService(sheetsClient: mockClient);
   });
@@ -129,6 +133,50 @@ void main() {
     verify(() => mockClient.batchUpdateValues(existingId, any())).called(1);
   });
 
+  test('sync prefers renamed sheet by name over stale stored ID', () async {
+    const staleId = 'deleted-old-id';
+    const renamedId = 'renamed-sheet-id';
+    when(() => mockClient.findSpreadsheetId('FlipBin Export'))
+        .thenAnswer((_) async => renamedId);
+    when(() => mockClient.clearSheet(any(), any())).thenAnswer((_) async {});
+    when(() => mockClient.batchUpdateValues(any(), any()))
+        .thenAnswer((_) async {});
+
+    final id = await service.syncToSheets(
+      [],
+      [],
+      existingSpreadsheetId: staleId,
+    );
+
+    expect(id, equals(renamedId));
+    verify(() => mockClient.findSpreadsheetId('FlipBin Export')).called(1);
+    verifyNever(() => mockClient.getValues(staleId, any()));
+    verify(() => mockClient.batchUpdateValues(renamedId, any())).called(1);
+  });
+
+  test('export recovers when prior file ID is deleted and name missing', () async {
+    const staleId = 'gone-id';
+    when(() => mockClient.findSpreadsheetId('FlipBin Export'))
+        .thenAnswer((_) async => null);
+    when(() => mockClient.getValues(staleId, 'Inventory!A1'))
+        .thenThrow(Exception('404 File not found'));
+    when(() => mockClient.createSpreadsheet('FlipBin Export', any()))
+        .thenAnswer((_) async => 'fresh-id');
+    when(() => mockClient.batchUpdateValues(any(), any()))
+        .thenAnswer((_) async {});
+
+    final id = await service.syncToSheets(
+      [],
+      [],
+      existingSpreadsheetId: staleId,
+    );
+
+    expect(id, equals('fresh-id'));
+    verify(() => mockClient.createSpreadsheet('FlipBin Export', ['Inventory', 'Expenses']))
+        .called(1);
+    verify(() => mockClient.batchUpdateValues('fresh-id', any())).called(1);
+  });
+
   test('sync handles network failure gracefully', () async {
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenThrow(Exception('Network connection failed'));
@@ -199,6 +247,7 @@ void main() {
     final data = await service.importFromSheets();
 
     expect(data.items.length, equals(2));
+    expect(data.spreadsheetId, equals(sheetId));
     final item1 = data.items[0];
     expect(item1.itemDescription.value, equals('Super Mario Odyssey'));
     expect(item1.barcode.value, equals('012345678905'));
@@ -226,6 +275,42 @@ void main() {
     expect(exp1.taxAmount.value, equals(0.85));
   });
 
+  test('import finds renamed sheet by name ignoring stale stored ID', () async {
+    const staleId = 'old-deleted-id';
+    const renamedId = 'new-renamed-id';
+    when(() => mockClient.findSpreadsheetId('FlipBin Export'))
+        .thenAnswer((_) async => renamedId);
+    when(() => mockClient.getValues(renamedId, 'Inventory!A1:M'))
+        .thenAnswer((_) async => [GoogleSheetsService.inventoryHeaders]);
+    when(() => mockClient.getValues(renamedId, 'Expenses!A1:J'))
+        .thenAnswer((_) async => [GoogleSheetsService.expenseHeaders]);
+
+    final data = await service.importFromSheets(existingSpreadsheetId: staleId);
+
+    expect(data.spreadsheetId, equals(renamedId));
+    verify(() => mockClient.findSpreadsheetId('FlipBin Export')).called(1);
+    verifyNever(() => mockClient.getValues(staleId, any()));
+    verify(() => mockClient.getValues(renamedId, 'Inventory!A1:M')).called(1);
+  });
+
+  test('import throws when spreadsheet missing by name and stored ID', () async {
+    when(() => mockClient.findSpreadsheetId('FlipBin Export'))
+        .thenAnswer((_) async => null);
+    when(() => mockClient.getValues('stale', 'Inventory!A1'))
+        .thenThrow(Exception('404'));
+
+    expect(
+      () => service.importFromSheets(existingSpreadsheetId: 'stale'),
+      throwsA(
+        predicate(
+          (e) =>
+              e is Exception &&
+              e.toString().contains('FlipBin Export') &&
+              e.toString().contains('was not found'),
+        ),
+      ),
+    );
+  });
 
   test('syncToSheets exports Image URL column', () async {
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
@@ -277,5 +362,22 @@ void main() {
     final data = await service.importFromSheets();
     expect(data.items, isEmpty);
     expect(data.expenses, isEmpty);
+  });
+
+  test('resolveExportSpreadsheet prefers name then creates when missing', () async {
+    when(() => mockClient.findSpreadsheetId('FlipBin Export'))
+        .thenAnswer((_) async => null);
+    when(() => mockClient.getValues('stale', 'Inventory!A1'))
+        .thenThrow(Exception('gone'));
+    when(() => mockClient.createSpreadsheet('FlipBin Export', any()))
+        .thenAnswer((_) async => 'created');
+
+    final resolved = await service.resolveExportSpreadsheet(
+      mockClient,
+      existingId: 'stale',
+      createIfMissing: true,
+    );
+    expect(resolved.id, 'created');
+    expect(resolved.created, isTrue);
   });
 }

@@ -138,7 +138,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
-                child: syncState.account != null
+                child: syncState.isSignedIn
                     ? Row(
                         children: [
                           const CircleAvatar(
@@ -150,11 +150,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  syncState.account!.displayName ?? 'Google User',
+                                  syncState.displayName ?? 'Google User',
                                   style: const TextStyle(fontWeight: FontWeight.bold),
                                 ),
                                 Text(
-                                  syncState.account!.email,
+                                  syncState.displayEmail ?? '',
                                   style: const TextStyle(color: Colors.white70, fontSize: 13),
                                 ),
                               ],
@@ -351,7 +351,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       children: [
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: (syncState.isSyncing || syncState.isImporting || syncState.account == null)
+                            onPressed: (syncState.isSyncing || syncState.isImporting || !syncState.isSignedIn)
                                 ? null
                                 : () async {
                                     await syncNotifier.export();
@@ -376,7 +376,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: (syncState.isSyncing || syncState.isImporting || syncState.account == null)
+                            onPressed: (syncState.isSyncing || syncState.isImporting || !syncState.isSignedIn)
                                 ? null
                                 : () => _confirmAndImport(context, syncNotifier),
                             icon: syncState.isImporting
@@ -391,7 +391,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                       ],
                     ),
-                    if (syncState.account == null) ...[
+                    if (!syncState.isSignedIn) ...[
                       const SizedBox(height: 8),
                       const Text(
                         'Sign in above to enable Google Sheets export and import.',
@@ -399,7 +399,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         style: TextStyle(fontSize: 12, color: Colors.white38),
                       ),
                     ],
-                    if (syncState.error != null && syncState.account != null) ...[
+                    if (syncState.error != null && syncState.isSignedIn) ...[
                       const SizedBox(height: 12),
                       Container(
                         padding: const EdgeInsets.all(10),

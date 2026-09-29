@@ -20,16 +20,14 @@ class ScannerScreen extends ConsumerStatefulWidget {
 class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   final TextEditingController _manualController = TextEditingController();
 
-  /// On web, browsers require a user gesture before getUserMedia.
-  /// Keep autoStart:false on web and start from the Enable Camera button —
-  /// but only AFTER MobileScanner is mounted (controller.attach).
+  /// Auto-start on all platforms so the scanner opens without an Enable Camera
+  /// button. MobileScanner mounts first; we also kick start() after the first
+  /// frame as a belt-and-suspenders path for web attach timing.
   late final MobileScannerController _scannerController =
       MobileScannerController(
-    // unrestricted = lowest latency to first decode on web (BarcodeDetector /
-    // zxing-wasm). noDuplicates still filters repeats via our provider gen.
     detectionSpeed: DetectionSpeed.unrestricted,
     facing: CameraFacing.back,
-    autoStart: !kIsWeb,
+    autoStart: true,
     formats: const [
       BarcodeFormat.upcA,
       BarcodeFormat.upcE,
@@ -46,8 +44,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   /// in mobile_scanner 7.x). Handles both captures and stream errors.
   StreamSubscription<BarcodeCapture>? _barcodeSubscription;
 
-  bool _cameraStarted = !kIsWeb;
-  bool _startingCamera = false;
+  bool _cameraStarted = false;
+  bool _startingCamera = true;
   String? _cameraStartError;
 
   /// Debounce identical codes so a held barcode does not spam lookups.
@@ -70,6 +68,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
       },
       cancelOnError: false,
     );
+
+    // After MobileScanner mounts and attaches, ensure start() has been called.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_ensureCameraStarted());
+    });
   }
 
   @override
@@ -77,7 +80,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     _barcodeSubscription?.cancel();
     _barcodeSubscription = null;
     _manualController.dispose();
-    // We own the controller (autoStart may be false); dispose explicitly.
     unawaited(_scannerController.dispose());
     super.dispose();
   }
@@ -97,7 +99,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
       _lastHandledCode = raw;
       _lastHandledAt = now;
 
-      // Keep manual field in sync so Look Up and auto path share the same UPC.
       if (_manualController.text != raw) {
         _manualController.text = raw;
       }
@@ -106,34 +107,62 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     }
   }
 
-  Future<void> _enableCamera() async {
-    if (_startingCamera || _cameraStarted) return;
+  Future<void> _ensureCameraStarted() async {
+    if (!mounted) return;
+    if (_cameraStarted) return;
+
     setState(() {
       _startingCamera = true;
       _cameraStartError = null;
     });
+
     try {
-      // MobileScanner must already be mounted so controller.attach() ran;
-      // start() waits briefly for attach on mobile_scanner 7.x.
-      await _scannerController.start();
+      // autoStart may already be running; start() is safe / no-ops if active
+      // on mobile_scanner 7.x after attach. Brief delay lets web attach finish.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      if (!mounted) return;
+
+      if (!_scannerController.value.isRunning) {
+        await _scannerController.start();
+      }
+
       if (!mounted) return;
       setState(() {
         _cameraStarted = true;
         _startingCamera = false;
+        _cameraStartError = null;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _startingCamera = false;
-        _cameraStartError = e.toString();
+        _cameraStarted = false;
+        _cameraStartError = _friendlyCameraError(e);
       });
     }
+  }
+
+  String _friendlyCameraError(Object e) {
+    final raw = e.toString();
+    final lower = raw.toLowerCase();
+    if (lower.contains('permission') ||
+        lower.contains('notallowed') ||
+        lower.contains('denied') ||
+        lower.contains('notallowederror')) {
+      return 'Camera permission was denied. Allow camera access for this site '
+          'in your browser settings, then reload this page. You can also enter '
+          'a UPC manually below.';
+    }
+    if (lower.contains('notfound') || lower.contains('no device')) {
+      return 'No camera was found on this device. Enter a UPC manually below.';
+    }
+    return 'Could not start the camera. Check browser permissions or enter a '
+        'UPC manually below.\n$raw';
   }
 
   void _onManualLookup() {
     final upc = _manualController.text.trim();
     if (upc.isNotEmpty) {
-      // Same pipeline as auto-detect.
       ref.read(scannerProvider.notifier).onBarcodeDetected(upc);
     }
   }
@@ -187,19 +216,14 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
       children: [
         MobileScanner(
           controller: _scannerController,
-          // Handling is via controller.barcodes subscription in initState.
           fit: BoxFit.cover,
           errorBuilder: (context, error) {
             return _buildCameraPlaceholder(
               icon: Icons.videocam_off,
               title: 'Camera Unavailable or Permission Denied',
               subtitle:
-                  'Please grant camera permission in your browser or enter the barcode manually below.',
-              action: ElevatedButton.icon(
-                onPressed: _startingCamera ? null : _enableCamera,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Try Again'),
-              ),
+                  'Please grant camera permission in your browser settings, '
+                  'then reload this page — or enter the barcode manually below.',
             );
           },
         ),
@@ -221,35 +245,28 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
           _buildCameraPlaceholder(
             icon: Icons.videocam_off,
             title: 'Camera Unavailable or Permission Denied',
-            subtitle:
-                'Please grant camera permission in your browser or enter the barcode manually below.\n$_cameraStartError',
-            action: ElevatedButton.icon(
+            subtitle: _cameraStartError!,
+            action: TextButton.icon(
               onPressed: _startingCamera
                   ? null
                   : () {
                       setState(() => _cameraStartError = null);
-                      _enableCamera();
+                      unawaited(_ensureCameraStarted());
                     },
               icon: const Icon(Icons.refresh),
-              label: const Text('Try Again'),
+              label: const Text('Retry after enabling permission'),
             ),
           )
-        else if (kIsWeb && !_cameraStarted)
+        else if (_startingCamera && !_cameraStarted)
           _buildCameraPlaceholder(
             icon: Icons.photo_camera,
-            title: 'Camera ready',
+            title: 'Starting camera…',
             subtitle:
-                'Tap Enable Camera to grant permission and start scanning barcodes. You can also enter a UPC manually below.',
-            action: ElevatedButton.icon(
-              onPressed: _startingCamera ? null : _enableCamera,
-              icon: _startingCamera
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.videocam),
-              label: Text(_startingCamera ? 'Starting…' : 'Enable Camera'),
+                'Allow camera access if your browser asks. You can also enter a UPC manually below.',
+            action: const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
             ),
           ),
       ],
@@ -379,8 +396,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                                   width: 80,
                                   height: 80,
                                   fit: BoxFit.cover,
-                                  // Prefer <img> on web: cover CDNs often omit CORS,
-                                  // which breaks CanvasKit byte-fetch Image.network.
                                   webHtmlElementStrategy:
                                       WebHtmlElementStrategy.prefer,
                                   errorBuilder: (_, __, ___) => const Icon(

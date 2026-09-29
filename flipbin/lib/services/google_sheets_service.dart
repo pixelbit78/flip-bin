@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
+import 'package:flipbin/services/google_session_store.dart';
 
 /// Abstract client interface for Google Sheets API operations.
 abstract class SheetsClient {
@@ -49,17 +50,21 @@ class RealSheetsClient implements SheetsClient {
   @override
   Future<String?> findSpreadsheetId(String title) async {
     try {
+      // Escape single quotes per Drive query syntax.
+      final escaped = title.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
       final list = await _driveApi.files.list(
-        q: "name = '$title' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false",
+        q: "name = '$escaped' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false",
         $fields: 'files(id, name)',
         spaces: 'drive',
+        pageSize: 10,
+        orderBy: 'modifiedTime desc',
       );
       final files = list.files;
       if (files != null && files.isNotEmpty) {
         return files.first.id;
       }
     } catch (_) {
-      // In case Drive search encounters permission or scope restriction, fallback
+      // Drive search may fail on scope restriction; caller falls back to stored ID.
     }
     return null;
   }
@@ -143,6 +148,10 @@ class DemoGoogleSignInAuthentication implements GoogleSignInAuthentication {
 class GoogleSheetsService {
   GoogleSignIn _googleSignIn;
   final SheetsClient? _sheetsClient;
+  final GoogleSessionStore _sessionStore;
+  String? _restoredAccessToken;
+
+  static const exportTitle = 'FlipBin Export';
 
   static const inventoryHeaders = [
     'Date Added',
@@ -176,40 +185,215 @@ class GoogleSheetsService {
   static const defaultClientId =
       '300135141102-ijqefa0enb2pm08i5kkgdnfbmpgp46tb.apps.googleusercontent.com';
 
+  /// Sheets read/write + app-created Drive files + metadata search so renamed
+  /// spreadsheets (not necessarily created by FlipBin) can be found by title.
+  static const List<String> oauthScopes = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/drive.metadata.readonly',
+  ];
+
   GoogleSheetsService({
     GoogleSignIn? googleSignIn,
     SheetsClient? sheetsClient,
     String? clientId,
+    GoogleSessionStore? sessionStore,
   })  : _googleSignIn = googleSignIn ??
             GoogleSignIn(
               clientId: (clientId != null && clientId.trim().isNotEmpty)
                   ? clientId.trim()
                   : defaultClientId,
-              scopes: [
-                'https://www.googleapis.com/auth/spreadsheets',
-                'https://www.googleapis.com/auth/drive.file',
-              ],
+              scopes: oauthScopes,
             ),
-        _sheetsClient = sheetsClient;
+        _sheetsClient = sheetsClient,
+        _sessionStore = sessionStore ?? GoogleSessionStore();
 
   GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
+
+  GoogleSessionStore get sessionStore => _sessionStore;
 
   void configureClientId(String? clientId) {
     _googleSignIn = GoogleSignIn(
       clientId: (clientId != null && clientId.trim().isNotEmpty) ? clientId.trim() : null,
-      scopes: [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive.file',
-      ],
+      scopes: oauthScopes,
     );
   }
 
   Future<GoogleSignInAccount?> signIn() async {
-    return _googleSignIn.signIn();
+    final account = await _googleSignIn.signIn();
+    if (account != null) {
+      await _persistAccount(account);
+      await _persistLiveAccessToken(account);
+    }
+    return account;
+  }
+
+  /// Restores GIS identity via One Tap / auto-select when possible, and reapplies
+  /// a still-valid cached access token so Sheets calls work after a cold start.
+  Future<GoogleSignInAccount?> signInSilently() async {
+    final account = await _googleSignIn.signInSilently();
+    final persisted = await _sessionStore.load();
+
+    if (account != null) {
+      await _persistAccount(account);
+      // Prefer a live token; fall back to cached token from prior session.
+      final live = await _tryReadLiveAccessToken(account);
+      if (live != null) {
+        _restoredAccessToken = live;
+        await _sessionStore.saveAccessToken(live);
+      } else if (persisted?.accessToken != null) {
+        _restoredAccessToken = persisted!.accessToken;
+      } else {
+        // Attempt silent scope refresh (no account picker when consent exists).
+        await _tryRefreshScopes();
+      }
+      return account;
+    }
+
+    // Identity silent-restore failed, but we may still have a cached token + email
+    // from this browser. Keep restored token for API use; UI uses persisted email.
+    if (persisted?.accessToken != null) {
+      _restoredAccessToken = persisted!.accessToken;
+    }
+    return null;
   }
 
   Future<void> signOut() async {
+    _restoredAccessToken = null;
+    await _sessionStore.clearAll();
     await _googleSignIn.signOut();
+  }
+
+  Future<void> _persistAccount(GoogleSignInAccount account) async {
+    await _sessionStore.saveSignedInUser(
+      email: account.email,
+      displayName: account.displayName,
+    );
+  }
+
+  Future<String?> _tryReadLiveAccessToken(GoogleSignInAccount account) async {
+    try {
+      final auth = await account.authentication;
+      final token = auth.accessToken;
+      if (token != null && token.isNotEmpty) return token;
+    } catch (_) {}
+    try {
+      final headers = await account.authHeaders;
+      final authHeader = headers['Authorization'] ?? headers['authorization'];
+      if (authHeader != null && authHeader.toLowerCase().startsWith('bearer ')) {
+        return authHeader.substring(7).trim();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _persistLiveAccessToken(GoogleSignInAccount account) async {
+    final token = await _tryReadLiveAccessToken(account);
+    if (token != null) {
+      _restoredAccessToken = token;
+      await _sessionStore.saveAccessToken(token);
+    }
+  }
+
+  Future<void> _tryRefreshScopes() async {
+    try {
+      final granted = await _googleSignIn.requestScopes(oauthScopes);
+      if (granted) {
+        final user = currentUser;
+        if (user != null) {
+          await _persistLiveAccessToken(user);
+        }
+      }
+    } catch (_) {
+      // Popup blocked or consent needed — caller can prompt interactive sign-in.
+    }
+  }
+
+  Future<SheetsClient> _buildClient() async {
+    if (_sheetsClient != null) return _sheetsClient!;
+
+    final user = currentUser;
+    if (user == null && _restoredAccessToken == null) {
+      throw Exception('Please sign in with Google first.');
+    }
+    if (user is DemoGoogleSignInAccount) {
+      throw _DemoClientSentinel();
+    }
+
+    http.Client? httpClient;
+
+    if (_restoredAccessToken != null && _restoredAccessToken!.isNotEmpty) {
+      httpClient = AuthHeadersClient({
+        'Authorization': 'Bearer $_restoredAccessToken',
+      });
+    }
+
+    if (httpClient == null && user != null) {
+      try {
+        final headers = await user.authHeaders;
+        if (headers.isNotEmpty) {
+          httpClient = AuthHeadersClient(headers);
+          await _persistLiveAccessToken(user);
+        }
+      } catch (_) {}
+    }
+
+    httpClient ??= await _googleSignIn.authenticatedClient();
+    if (httpClient == null) {
+      // Last chance: interactive-free scope refresh, then retry.
+      await _tryRefreshScopes();
+      if (_restoredAccessToken != null) {
+        httpClient = AuthHeadersClient({
+          'Authorization': 'Bearer $_restoredAccessToken',
+        });
+      }
+      httpClient ??= await _googleSignIn.authenticatedClient();
+    }
+
+    if (httpClient == null) {
+      throw Exception(
+        'Could not authenticate with Google API client. Please sign out and sign in again.',
+      );
+    }
+    return RealSheetsClient(httpClient);
+  }
+
+  /// Resolves the FlipBin Export spreadsheet.
+  ///
+  /// Always prefers a live Drive **name** lookup so a deleted prior file ID or a
+  /// sheet renamed to [exportTitle] is picked up. Falls back to [existingId]
+  /// only when name search finds nothing but the ID still responds. Creates a
+  /// new spreadsheet when [createIfMissing] is true.
+  Future<({String id, bool created})> resolveExportSpreadsheet(
+    SheetsClient client, {
+    String? existingId,
+    bool createIfMissing = false,
+  }) async {
+    final byName = await client.findSpreadsheetId(exportTitle);
+    if (byName != null) {
+      return (id: byName, created: false);
+    }
+
+    if (existingId != null && existingId.isNotEmpty) {
+      try {
+        await client.getValues(existingId, 'Inventory!A1');
+        return (id: existingId, created: false);
+      } catch (_) {
+        // Stale / deleted ID — continue.
+      }
+    }
+
+    if (createIfMissing) {
+      final id = await client.createSpreadsheet(
+        exportTitle,
+        ['Inventory', 'Expenses'],
+      );
+      return (id: id, created: true);
+    }
+
+    throw Exception(
+      'Spreadsheet "$exportTitle" was not found in your Google Drive.',
+    );
   }
 
   /// Synchronizes full inventory and expenses data to "FlipBin Export" spreadsheet.
@@ -220,47 +404,40 @@ class GoogleSheetsService {
     String? existingSpreadsheetId,
   }) async {
     SheetsClient client;
-    if (_sheetsClient != null) {
-      client = _sheetsClient!;
-    } else {
-      final user = currentUser;
-      if (user == null) {
-        throw Exception('Please sign in with Google first.');
-      }
-      if (user is DemoGoogleSignInAccount) {
-        return 'demo-spreadsheet-id';
-      }
-
-      http.Client? httpClient;
-      try {
-        final headers = await user.authHeaders;
-        if (headers.isNotEmpty) {
-          httpClient = AuthHeadersClient(headers);
-        }
-      } catch (_) {}
-
-      httpClient ??= await _googleSignIn.authenticatedClient();
-      if (httpClient == null) {
-        throw Exception(
-          'Could not authenticate with Google API client. Please sign out and sign in again.',
-        );
-      }
-      client = RealSheetsClient(httpClient);
+    try {
+      client = await _buildClient();
+    } on _DemoClientSentinel {
+      return 'demo-spreadsheet-id';
     }
 
-    const title = 'FlipBin Export';
-    var spreadsheetId = existingSpreadsheetId ?? await client.findSpreadsheetId(title);
+    var resolved = await resolveExportSpreadsheet(
+      client,
+      existingId: existingSpreadsheetId,
+      createIfMissing: true,
+    );
+    var spreadsheetId = resolved.id;
 
-    if (spreadsheetId == null) {
-      spreadsheetId = await client.createSpreadsheet(title, ['Inventory', 'Expenses']);
-    } else {
-      await client.clearSheet(spreadsheetId, 'Inventory!A:M');
-      await client.clearSheet(spreadsheetId, 'Expenses!A:J');
+    if (!resolved.created) {
+      try {
+        await client.clearSheet(spreadsheetId, 'Inventory!A:M');
+        await client.clearSheet(spreadsheetId, 'Expenses!A:J');
+      } catch (_) {
+        // Prior file may have been deleted between resolve and clear — recover.
+        final recovered = await resolveExportSpreadsheet(
+          client,
+          existingId: null,
+          createIfMissing: true,
+        );
+        spreadsheetId = recovered.id;
+        if (!recovered.created) {
+          await client.clearSheet(spreadsheetId, 'Inventory!A:M');
+          await client.clearSheet(spreadsheetId, 'Expenses!A:J');
+        }
+      }
     }
 
     final dateFormat = DateFormat('MM/dd/yyyy');
 
-    // Build Inventory rows
     final inventoryValues = <List<Object>>[
       inventoryHeaders,
       ...items.map((item) {
@@ -283,7 +460,6 @@ class GoogleSheetsService {
       }),
     ];
 
-    // Build Expense rows
     final expenseValues = <List<Object>>[
       expenseHeaders,
       ...expenses.map((exp) {
@@ -307,7 +483,22 @@ class GoogleSheetsService {
       sheets.ValueRange(range: 'Expenses!A1', values: expenseValues),
     ];
 
-    await client.batchUpdateValues(spreadsheetId, batchData);
+    try {
+      await client.batchUpdateValues(spreadsheetId, batchData);
+    } catch (_) {
+      // Recover if the file vanished after clear.
+      final recovered = await resolveExportSpreadsheet(
+        client,
+        existingId: null,
+        createIfMissing: true,
+      );
+      spreadsheetId = recovered.id;
+      await client.batchUpdateValues(spreadsheetId, batchData);
+    }
+
+    try {
+      await _sessionStore.saveSpreadsheetId(spreadsheetId);
+    } catch (_) {}
     return spreadsheetId;
   }
 
@@ -465,40 +656,18 @@ class GoogleSheetsService {
   /// Imports inventory and expenses from "FlipBin Export" spreadsheet.
   Future<SheetsImportData> importFromSheets({String? existingSpreadsheetId}) async {
     SheetsClient client;
-    if (_sheetsClient != null) {
-      client = _sheetsClient!;
-    } else {
-      final user = currentUser;
-      if (user == null) {
-        throw Exception('Please sign in with Google first.');
-      }
-      if (user is DemoGoogleSignInAccount) {
-        return const SheetsImportData(items: [], expenses: []);
-      }
-
-      http.Client? httpClient;
-      try {
-        final headers = await user.authHeaders;
-        if (headers.isNotEmpty) {
-          httpClient = AuthHeadersClient(headers);
-        }
-      } catch (_) {}
-
-      httpClient ??= await _googleSignIn.authenticatedClient();
-      if (httpClient == null) {
-        throw Exception(
-          'Could not authenticate with Google API client. Please sign out and sign in again.',
-        );
-      }
-      client = RealSheetsClient(httpClient);
+    try {
+      client = await _buildClient();
+    } on _DemoClientSentinel {
+      return const SheetsImportData(items: [], expenses: []);
     }
 
-    const title = 'FlipBin Export';
-    final spreadsheetId =
-        existingSpreadsheetId ?? await client.findSpreadsheetId(title);
-    if (spreadsheetId == null) {
-      throw Exception('Spreadsheet "$title" was not found in your Google Drive.');
-    }
+    final resolved = await resolveExportSpreadsheet(
+      client,
+      existingId: existingSpreadsheetId,
+      createIfMissing: false,
+    );
+    final spreadsheetId = resolved.id;
 
     final inventoryRows =
         await client.getValues(spreadsheetId, 'Inventory!A1:M') ?? [];
@@ -508,17 +677,30 @@ class GoogleSheetsService {
     final items = parseInventoryRows(inventoryRows);
     final expenses = parseExpenseRows(expenseRows);
 
-    return SheetsImportData(items: items, expenses: expenses);
+    try {
+      await _sessionStore.saveSpreadsheetId(spreadsheetId);
+    } catch (_) {}
+
+    return SheetsImportData(
+      items: items,
+      expenses: expenses,
+      spreadsheetId: spreadsheetId,
+    );
   }
 }
+
+/// Internal sentinel so demo accounts short-circuit without a real Sheets client.
+class _DemoClientSentinel implements Exception {}
 
 /// Data imported from Google Sheets.
 class SheetsImportData {
   final List<InventoryItemsCompanion> items;
   final List<ExpensesCompanion> expenses;
+  final String? spreadsheetId;
 
   const SheetsImportData({
     required this.items,
     required this.expenses,
+    this.spreadsheetId,
   });
 }
