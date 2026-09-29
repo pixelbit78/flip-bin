@@ -296,8 +296,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
           children: [
             TextButton.icon(
               onPressed: _editCoverUrl,
-              icon: Icon(
-                  displayUrl != null ? Icons.edit : Icons.add_photo_alternate),
+              icon: Icon(displayUrl != null ? Icons.edit : Icons.add_photo_alternate),
               label: Text(displayUrl != null ? 'Change cover' : 'Add cover'),
             ),
             if (displayUrl != null)
@@ -346,9 +345,6 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
 
     final dateFormat = DateFormat('yyyy-MM-dd');
 
-    // Space for the fixed Save bar so the last field can scroll fully into view.
-    const saveBarClearance = 96.0;
-
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.isNew ? 'Add Item' : 'Edit Item'),
@@ -360,205 +356,180 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
             ),
         ],
       ),
-      // Nested under ShellRoute bottom nav: Save sits just above the nav while
-      // form content scrolls underneath the fixed Save bar.
-      body: Stack(
-        children: [
-          Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, saveBarClearance),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildCoverSection(),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _descController,
+                decoration: const InputDecoration(labelText: 'Description *'),
+                validator: (val) {
+                  if (val == null || val.trim().isEmpty) {
+                    return 'Description is required';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              Row(
                 children: [
-                  _buildCoverSection(),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _descController,
-                    decoration:
-                        const InputDecoration(labelText: 'Description *'),
-                    validator: (val) {
-                      if (val == null || val.trim().isEmpty) {
-                        return 'Description is required';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<ItemType>(
-                          key: ValueKey('type-$_type'),
-                          initialValue: _type,
-                          decoration: const InputDecoration(labelText: 'Type'),
-                          items: ItemType.values
-                              .map((t) => DropdownMenuItem(
-                                    value: t,
-                                    child: Text(t.label),
-                                  ))
-                              .toList(),
-                          onChanged: (val) {
-                            if (val != null) setState(() => _type = val);
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: DropdownButtonFormField<ItemStatus>(
-                          key: ValueKey('status-$_status'),
-                          initialValue: _status,
-                          decoration:
-                              const InputDecoration(labelText: 'Status'),
-                          items: ItemStatus.values
-                              .map((s) => DropdownMenuItem(
-                                    value: s,
-                                    child: Text(s.label),
-                                  ))
-                              .toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() {
-                                _status = val;
-                                if (val == ItemStatus.sold &&
-                                    _dateSold == null) {
-                                  _dateSold = DateTime.now();
-                                }
-                              });
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _costController,
-                          focusNode: _costFocusNode,
-                          decoration: const InputDecoration(
-                            labelText: 'Cost (\$)',
-                            prefixText: '\$ ',
-                          ),
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          validator: (val) {
-                            if (val == null || val.trim().isEmpty) {
-                              return 'Cost is required';
-                            }
-                            if (double.tryParse(val.trim()) == null) {
-                              return 'Enter valid number';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Row(
-                          children: [
-                            const Text('Qty: '),
-                            IconButton(
-                              icon: const Icon(Icons.remove_circle_outline),
-                              onPressed: _quantity > 1
-                                  ? () => setState(() => _quantity--)
-                                  : null,
-                            ),
-                            Text(
-                              '$_quantity',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.add_circle_outline),
-                              onPressed: () => setState(() => _quantity++),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _barcodeController,
-                    decoration:
-                        const InputDecoration(labelText: 'Barcode (UPC)'),
-                  ),
-                  const SizedBox(height: 16),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Date Added'),
-                    subtitle: Text(dateFormat.format(_dateAdded)),
-                    trailing: const Icon(Icons.calendar_today),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: _dateAdded,
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                      );
-                      if (picked != null) setState(() => _dateAdded = picked);
-                    },
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Date Sold'),
-                    subtitle: Text(
-                      _dateSold != null
-                          ? dateFormat.format(_dateSold!)
-                          : 'Not Sold',
+                  Expanded(
+                    child: DropdownButtonFormField<ItemType>(
+                      key: ValueKey('type-$_type'),
+                      initialValue: _type,
+                      decoration: const InputDecoration(labelText: 'Type'),
+                      items: ItemType.values
+                          .map((t) =>
+                              DropdownMenuItem(value: t, child: Text(t.label)))
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) setState(() => _type = val);
+                      },
                     ),
-                    trailing: const Icon(Icons.calendar_today),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: _dateSold ?? DateTime.now(),
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                      );
-                      if (picked != null) setState(() => _dateSold = picked);
-                    },
                   ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _commentsController,
-                    decoration: const InputDecoration(labelText: 'Comments'),
-                    maxLines: 3,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<ItemStatus>(
+                      key: ValueKey('status-$_status'),
+                      initialValue: _status,
+                      decoration: const InputDecoration(labelText: 'Status'),
+                      items: ItemStatus.values
+                          .map((s) =>
+                              DropdownMenuItem(value: s, child: Text(s.label)))
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _status = val;
+                            if (val == ItemStatus.sold && _dateSold == null) {
+                              _dateSold = DateTime.now();
+                            }
+                          });
+                        }
+                      },
+                    ),
                   ),
                 ],
               ),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Material(
-              elevation: 12,
-              color: Theme.of(context).scaffoldBackgroundColor,
-              child: SafeArea(
-                top: false,
-                minimum: EdgeInsets.zero,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _save,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _costController,
+                      focusNode: _costFocusNode,
+                      decoration: const InputDecoration(
+                        labelText: 'Cost (\$)',
+                        prefixText: '\$ ',
                       ),
-                      child: const Text('Save'),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      validator: (val) {
+                        if (val == null || val.trim().isEmpty) {
+                          return 'Cost is required';
+                        }
+                        if (double.tryParse(val.trim()) == null) {
+                          return 'Enter valid number';
+                        }
+                        return null;
+                      },
                     ),
                   ),
-                ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        const Text('Qty: '),
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline),
+                          onPressed: _quantity > 1
+                              ? () => setState(() => _quantity--)
+                              : null,
+                        ),
+                        Text('$_quantity',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold)),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline),
+                          onPressed: () => setState(() => _quantity++),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _barcodeController,
+                decoration: const InputDecoration(labelText: 'Barcode (UPC)'),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _platformController,
+                decoration: const InputDecoration(
+                    labelText: 'Platform (e.g. PS5, Xbox)'),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Date Added'),
+                subtitle: Text(dateFormat.format(_dateAdded)),
+                trailing: const Icon(Icons.calendar_today),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: _dateAdded,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) setState(() => _dateAdded = picked);
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Date Sold'),
+                subtitle: Text(_dateSold != null
+                    ? dateFormat.format(_dateSold!)
+                    : 'Not Sold'),
+                trailing: const Icon(Icons.calendar_today),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: _dateSold ?? DateTime.now(),
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) setState(() => _dateSold = picked);
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _saleNumberController,
+                decoration:
+                    const InputDecoration(labelText: 'Sale Number / Order ID'),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _commentsController,
+                decoration: const InputDecoration(labelText: 'Comments'),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _save,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: const Text('Save'),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

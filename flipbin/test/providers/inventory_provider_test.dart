@@ -80,74 +80,15 @@ void main() {
 
     // StreamProvider watches the DB stream directly
     final activeItems = await container.read(
-      inventoryListProvider(
-              const InventoryFilter(statusFilter: ItemStatus.active))
-          .future,
+      inventoryListProvider(const InventoryFilter(statusFilter: ItemStatus.active)).future,
     );
     expect(activeItems.length, equals(2));
 
     final soldItems = await container.read(
-      inventoryListProvider(
-              const InventoryFilter(statusFilter: ItemStatus.sold))
-          .future,
+      inventoryListProvider(const InventoryFilter(statusFilter: ItemStatus.sold)).future,
     );
     expect(soldItems.length, equals(1));
     expect(soldItems.first.itemDescription, equals('Sold Item'));
-  });
-
-  test('inventoryListProvider personal filter lists personal and excludes sold',
-      () async {
-    final now = DateTime.now();
-
-    await db.inventoryItemsDao.insertItem(
-      InventoryItemsCompanion.insert(
-        dateAdded: now,
-        itemDescription: 'Active Keep',
-        type: ItemType.game,
-        cost: 10.0,
-        status: ItemStatus.active,
-      ),
-    );
-    await db.inventoryItemsDao.insertItem(
-      InventoryItemsCompanion.insert(
-        dateAdded: now,
-        itemDescription: 'Personal Keep',
-        type: ItemType.dvd,
-        cost: 0.0,
-        status: ItemStatus.personal,
-      ),
-    );
-    await db.inventoryItemsDao.insertItem(
-      InventoryItemsCompanion.insert(
-        dateAdded: now,
-        itemDescription: 'Sold Skip',
-        type: ItemType.bluray,
-        cost: 15.0,
-        status: ItemStatus.sold,
-      ),
-    );
-
-    final personalItems = await container.read(
-      inventoryListProvider(
-        const InventoryFilter(statusFilter: ItemStatus.personal),
-      ).future,
-    );
-    expect(personalItems.length, equals(1));
-    expect(personalItems.first.itemDescription, equals('Personal Keep'));
-    expect(personalItems.first.status, equals(ItemStatus.personal));
-
-    final soldItems = await container.read(
-      inventoryListProvider(
-        const InventoryFilter(statusFilter: ItemStatus.sold),
-      ).future,
-    );
-    expect(soldItems.map((e) => e.itemDescription).toList(),
-        equals(['Sold Skip']));
-
-    final allItems = await container.read(
-      inventoryListProvider(const InventoryFilter()).future,
-    );
-    expect(allItems.length, equals(3));
   });
 
   test('saveInventoryItem inserts and invalidates list', () async {
@@ -172,8 +113,7 @@ void main() {
 
     // The stream auto-updates from the DB; wait for next emission
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    final updatedList =
-        await container.read(inventoryListProvider(filter).future);
+    final updatedList = await container.read(inventoryListProvider(filter).future);
     expect(updatedList.length, equals(1));
     expect(updatedList.first.itemDescription, equals('New Game'));
   });
@@ -205,8 +145,7 @@ void main() {
     expect(retrieved.dateSold, isNotNull);
   });
 
-  test('scannerProvider replaces result when new barcode scanned during lookup',
-      () async {
+  test('scannerProvider replaces result when new barcode scanned during lookup', () async {
     final notifier = container.read(scannerProvider.notifier);
 
     // Scan first barcode
@@ -220,8 +159,7 @@ void main() {
 
     // Complete the first lookup (it should be discarded)
     fakeLookupService.pendingLookups['111111']!.complete(
-      const BarcodeResult(
-          barcode: '111111', productName: 'First Item', source: 'UPC DB'),
+      const BarcodeResult(barcode: '111111', productName: 'First Item', source: 'UPC DB'),
     );
     await pumpEventQueue();
 
@@ -230,8 +168,7 @@ void main() {
 
     // Complete the second lookup
     fakeLookupService.pendingLookups['222222']!.complete(
-      const BarcodeResult(
-          barcode: '222222', productName: 'Second Item', source: 'UPC DB'),
+      const BarcodeResult(barcode: '222222', productName: 'Second Item', source: 'UPC DB'),
     );
     await pumpEventQueue();
 

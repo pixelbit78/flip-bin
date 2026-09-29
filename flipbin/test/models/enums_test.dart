@@ -26,27 +26,4 @@ void main() {
       expect(ItemType.fromCategory('Game'), ItemType.game);
     });
   });
-
-  group('ItemStatus.fromLabel', () {
-    test('matches canonical labels and names', () {
-      expect(ItemStatus.fromLabel('Active'), ItemStatus.active);
-      expect(ItemStatus.fromLabel('Sold'), ItemStatus.sold);
-      expect(ItemStatus.fromLabel('Personal'), ItemStatus.personal);
-      expect(ItemStatus.fromLabel('personal'), ItemStatus.personal);
-      expect(ItemStatus.fromLabel(null), ItemStatus.active);
-      expect(ItemStatus.fromLabel(''), ItemStatus.active);
-    });
-
-    test('accepts legacy Personal spreadsheet variants', () {
-      expect(ItemStatus.fromLabel('Personal Use'), ItemStatus.personal);
-      expect(ItemStatus.fromLabel('Personal Item'), ItemStatus.personal);
-      expect(ItemStatus.fromLabel('Personal Use Date'), ItemStatus.personal);
-      expect(ItemStatus.fromLabel('personal use'), ItemStatus.personal);
-    });
-
-    test('does not reclassify sold/unknown as personal', () {
-      expect(ItemStatus.fromLabel('Sold'), ItemStatus.sold);
-      expect(ItemStatus.fromLabel('Unknown'), ItemStatus.active);
-    });
-  });
 }

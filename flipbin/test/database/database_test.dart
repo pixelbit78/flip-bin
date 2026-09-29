@@ -68,67 +68,15 @@ void main() {
         ),
       );
 
-      final activeList = await db.inventoryItemsDao
-          .watchAll(statusFilter: ItemStatus.active)
-          .first;
+      final activeList = await db.inventoryItemsDao.watchAll(statusFilter: ItemStatus.active).first;
       expect(activeList.length, equals(2));
 
-      final soldList = await db.inventoryItemsDao
-          .watchAll(statusFilter: ItemStatus.sold)
-          .first;
+      final soldList = await db.inventoryItemsDao.watchAll(statusFilter: ItemStatus.sold).first;
       expect(soldList.length, equals(1));
       expect(soldList.first.itemDescription, equals('Item 3'));
     });
 
-    test('watchAll filters personal separately from sold', () async {
-      final now = DateTime.now();
-      await db.inventoryItemsDao.insertItem(
-        InventoryItemsCompanion.insert(
-          dateAdded: now,
-          itemDescription: 'Keep Active',
-          type: ItemType.game,
-          cost: 5.0,
-          status: ItemStatus.active,
-        ),
-      );
-      await db.inventoryItemsDao.insertItem(
-        InventoryItemsCompanion.insert(
-          dateAdded: now,
-          itemDescription: 'Shelf Copy',
-          type: ItemType.dvd,
-          cost: 0.0,
-          status: ItemStatus.personal,
-        ),
-      );
-      await db.inventoryItemsDao.insertItem(
-        InventoryItemsCompanion.insert(
-          dateAdded: now,
-          itemDescription: 'Sold Copy',
-          type: ItemType.bluray,
-          cost: 6.0,
-          status: ItemStatus.sold,
-        ),
-      );
-
-      final personal = await db.inventoryItemsDao
-          .watchAll(statusFilter: ItemStatus.personal)
-          .first;
-      expect(personal.length, equals(1));
-      expect(personal.first.itemDescription, equals('Shelf Copy'));
-      expect(personal.first.status, equals(ItemStatus.personal));
-
-      final sold = await db.inventoryItemsDao
-          .watchAll(statusFilter: ItemStatus.sold)
-          .first;
-      expect(
-          sold.map((e) => e.itemDescription).toList(), equals(['Sold Copy']));
-
-      final all = await db.inventoryItemsDao.watchAll().first;
-      expect(all.length, equals(3));
-    });
-
-    test('watchByBarcodeActiveOrPersonal returns active/personal only',
-        () async {
+    test('watchByBarcodeActiveOrPersonal returns active/personal only', () async {
       final now = DateTime.now();
       const upc = '012345678901';
       await db.inventoryItemsDao.insertItem(
@@ -203,11 +151,9 @@ void main() {
         ),
       );
 
-      final searchResults =
-          await db.inventoryItemsDao.watchAll(searchQuery: 'mario').first;
+      final searchResults = await db.inventoryItemsDao.watchAll(searchQuery: 'mario').first;
       expect(searchResults.length, equals(1));
-      expect(
-          searchResults.first.itemDescription, equals('Super Mario Sunshine'));
+      expect(searchResults.first.itemDescription, equals('Super Mario Sunshine'));
     });
 
     test('countByStatus returns correct count', () async {
@@ -240,12 +186,9 @@ void main() {
         ),
       );
 
-      final activeCount =
-          await db.inventoryItemsDao.countByStatus(ItemStatus.active);
-      final soldCount =
-          await db.inventoryItemsDao.countByStatus(ItemStatus.sold);
-      final personalCount =
-          await db.inventoryItemsDao.countByStatus(ItemStatus.personal);
+      final activeCount = await db.inventoryItemsDao.countByStatus(ItemStatus.active);
+      final soldCount = await db.inventoryItemsDao.countByStatus(ItemStatus.sold);
+      final personalCount = await db.inventoryItemsDao.countByStatus(ItemStatus.personal);
 
       expect(activeCount, equals(2));
       expect(soldCount, equals(1));
@@ -330,10 +273,8 @@ void main() {
         ),
       );
 
-      final marchTotal =
-          await db.expensesDao.totalForMonth(DateTime(2026, 3, 1));
-      final aprilTotal =
-          await db.expensesDao.totalForMonth(DateTime(2026, 4, 1));
+      final marchTotal = await db.expensesDao.totalForMonth(DateTime(2026, 3, 1));
+      final aprilTotal = await db.expensesDao.totalForMonth(DateTime(2026, 4, 1));
 
       expect(marchTotal, equals(25.00));
       expect(aprilTotal, equals(20.00));

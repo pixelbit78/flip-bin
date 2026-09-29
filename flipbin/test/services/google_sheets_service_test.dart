@@ -68,7 +68,8 @@ void main() {
         .thenAnswer((_) async => null);
     when(() => mockClient.createSpreadsheet('FlipBin Export', any()))
         .thenAnswer((_) async => 'new-sheet-id-123');
-    when(() => mockClient.clearSheet(any(), any())).thenAnswer((_) async {});
+    when(() => mockClient.clearSheet(any(), any()))
+        .thenAnswer((_) async {});
     when(() => mockClient.batchUpdateValues(any(), any()))
         .thenAnswer((_) async {});
 
@@ -87,17 +88,16 @@ void main() {
 
     await service.syncToSheets(items, expenses);
 
-    verify(() => mockClient.createSpreadsheet(
-        'FlipBin Export', ['Inventory', 'Expenses'])).called(1);
-    verify(() => mockClient.batchUpdateValues('new-sheet-id-123', any()))
-        .called(1);
+    verify(() => mockClient.createSpreadsheet('FlipBin Export', ['Inventory', 'Expenses'])).called(1);
+    verify(() => mockClient.batchUpdateValues('new-sheet-id-123', any())).called(1);
   });
 
   test('syncToSheets clears and writes data on subsequent sync', () async {
     const existingId = 'existing-sheet-456';
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => existingId);
-    when(() => mockClient.clearSheet(any(), any())).thenAnswer((_) async {});
+    when(() => mockClient.clearSheet(any(), any()))
+        .thenAnswer((_) async {});
     when(() => mockClient.batchUpdateValues(any(), any()))
         .thenAnswer((_) async {});
 
@@ -154,8 +154,7 @@ void main() {
     verify(() => mockClient.batchUpdateValues(renamedId, any())).called(1);
   });
 
-  test('export recovers when prior file ID is deleted and name missing',
-      () async {
+  test('export recovers when prior file ID is deleted and name missing', () async {
     const staleId = 'gone-id';
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => null);
@@ -173,8 +172,8 @@ void main() {
     );
 
     expect(id, equals('fresh-id'));
-    verify(() => mockClient.createSpreadsheet(
-        'FlipBin Export', ['Inventory', 'Expenses'])).called(1);
+    verify(() => mockClient.createSpreadsheet('FlipBin Export', ['Inventory', 'Expenses']))
+        .called(1);
     verify(() => mockClient.batchUpdateValues('fresh-id', any())).called(1);
   });
 
@@ -189,8 +188,7 @@ void main() {
     verifyNever(() => mockClient.batchUpdateValues(any(), any()));
   });
 
-  test('importFromSheets parses inventory and expense rows accurately',
-      () async {
+  test('importFromSheets parses inventory and expense rows accurately', () async {
     const sheetId = 'test-sheet-789';
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => sheetId);
@@ -295,8 +293,7 @@ void main() {
     verify(() => mockClient.getValues(renamedId, 'Inventory!A1:M')).called(1);
   });
 
-  test('import throws when spreadsheet missing by name and stored ID',
-      () async {
+  test('import throws when spreadsheet missing by name and stored ID', () async {
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => null);
     when(() => mockClient.getValues('stale', 'Inventory!A1'))
@@ -367,8 +364,7 @@ void main() {
     expect(data.expenses, isEmpty);
   });
 
-  test('resolveExportSpreadsheet prefers name then creates when missing',
-      () async {
+  test('resolveExportSpreadsheet prefers name then creates when missing', () async {
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => null);
     when(() => mockClient.getValues('stale', 'Inventory!A1'))
@@ -402,108 +398,5 @@ void main() {
         ),
       ),
     );
-  });
-
-  test('parseInventoryRows recognizes Personal status and Personal Use Date',
-      () {
-    final rows = [
-      GoogleSheetsService.inventoryHeaders,
-      [
-        '01/15/2026',
-        '',
-        'Exact Personal',
-        'Game',
-        '5.00',
-        '',
-        'Personal',
-        '',
-        '01/20/2026',
-        '',
-        '',
-        '',
-        '',
-      ],
-      [
-        '01/16/2026',
-        '',
-        'Legacy Personal Use',
-        'DVD',
-        '3.00',
-        '',
-        'Personal Use',
-        '',
-        '01/21/2026',
-        '',
-        '',
-        '',
-        '',
-      ],
-      [
-        '01/17/2026',
-        '',
-        'Date-only Personal',
-        'Blu-ray',
-        '4.00',
-        '',
-        'Active',
-        '',
-        '01/22/2026',
-        '',
-        '',
-        '',
-        '',
-      ],
-      [
-        '01/18/2026',
-        '',
-        'Sold Stays Sold',
-        'CD',
-        '2.00',
-        'eBay',
-        'Sold',
-        '01/25/2026',
-        '01/19/2026',
-        '7',
-        '',
-        'ORD-1',
-        '',
-      ],
-      [
-        '01/19/2026',
-        '',
-        'Active No Dates',
-        'Book',
-        '1.00',
-        '',
-        'Active',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-      ],
-    ];
-
-    final items = service.parseInventoryRows(rows);
-    expect(items.length, equals(5));
-
-    expect(items[0].itemDescription.value, 'Exact Personal');
-    expect(items[0].status.value, ItemStatus.personal);
-    expect(items[0].dateSold.value, DateTime(2026, 1, 20));
-
-    expect(items[1].itemDescription.value, 'Legacy Personal Use');
-    expect(items[1].status.value, ItemStatus.personal);
-
-    expect(items[2].itemDescription.value, 'Date-only Personal');
-    expect(items[2].status.value, ItemStatus.personal);
-    expect(items[2].dateSold.value, DateTime(2026, 1, 22));
-
-    expect(items[3].itemDescription.value, 'Sold Stays Sold');
-    expect(items[3].status.value, ItemStatus.sold);
-    expect(items[3].dateSold.value, DateTime(2026, 1, 25));
-
-    expect(items[4].itemDescription.value, 'Active No Dates');
-    expect(items[4].status.value, ItemStatus.active);
   });
 }

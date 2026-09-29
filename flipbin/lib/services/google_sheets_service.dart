@@ -14,8 +14,7 @@ abstract class SheetsClient {
   Future<String?> findSpreadsheetId(String title);
   Future<String> createSpreadsheet(String title, List<String> sheetTitles);
   Future<void> clearSheet(String spreadsheetId, String range);
-  Future<void> batchUpdateValues(
-      String spreadsheetId, List<sheets.ValueRange> data);
+  Future<void> batchUpdateValues(String spreadsheetId, List<sheets.ValueRange> data);
   Future<List<List<Object?>>?> getValues(String spreadsheetId, String range);
 }
 
@@ -138,8 +137,7 @@ class RealSheetsClient implements SheetsClient {
   }
 
   @override
-  Future<String> createSpreadsheet(
-      String title, List<String> sheetTitles) async {
+  Future<String> createSpreadsheet(String title, List<String> sheetTitles) async {
     final spreadsheet = sheets.Spreadsheet(
       properties: sheets.SpreadsheetProperties(title: title),
       sheets: sheetTitles
@@ -174,10 +172,8 @@ class RealSheetsClient implements SheetsClient {
   }
 
   @override
-  Future<List<List<Object?>>?> getValues(
-      String spreadsheetId, String range) async {
-    final response =
-        await _sheetsApi.spreadsheets.values.get(spreadsheetId, range);
+  Future<List<List<Object?>>?> getValues(String spreadsheetId, String range) async {
+    final response = await _sheetsApi.spreadsheets.values.get(spreadsheetId, range);
     return response.values;
   }
 }
@@ -285,9 +281,7 @@ class GoogleSheetsService {
 
   void configureClientId(String? clientId) {
     _googleSignIn = GoogleSignIn(
-      clientId: (clientId != null && clientId.trim().isNotEmpty)
-          ? clientId.trim()
-          : null,
+      clientId: (clientId != null && clientId.trim().isNotEmpty) ? clientId.trim() : null,
       scopes: oauthScopes,
     );
   }
@@ -358,8 +352,7 @@ class GoogleSheetsService {
     try {
       final headers = await account.authHeaders;
       final authHeader = headers['Authorization'] ?? headers['authorization'];
-      if (authHeader != null &&
-          authHeader.toLowerCase().startsWith('bearer ')) {
+      if (authHeader != null && authHeader.toLowerCase().startsWith('bearer ')) {
         return authHeader.substring(7).trim();
       }
     } catch (_) {}
@@ -575,9 +568,7 @@ class GoogleSheetsService {
           item.platform ?? '',
           item.status.label,
           item.dateSold != null ? dateFormat.format(item.dateSold!) : '',
-          item.status == ItemStatus.personal
-              ? dateFormat.format(item.dateSold ?? item.dateAdded)
-              : '',
+          item.status == ItemStatus.personal ? dateFormat.format(item.dateSold ?? item.dateAdded) : '',
           days != null ? '$days' : '',
           item.comments ?? '',
           item.saleNumber ?? '',
@@ -693,20 +684,10 @@ class GoogleSheetsService {
       final type = ItemType.fromLabel(_parseString(getCell(typeCol)));
       final cost = _parseDouble(getCell(costCol));
       final platform = _parseString(getCell(platformCol));
-      final statusRaw = _parseString(getCell(statusCol));
-      var status = ItemStatus.fromLabel(statusRaw);
+      final status = ItemStatus.fromLabel(_parseString(getCell(statusCol)));
       DateTime? dateSold = _parseDate(getCell(dateSoldCol));
-      final personalDate = _parseDate(getCell(personalDateCol));
-      // Spreadsheet convention: a filled Personal Use Date (with no Date Sold)
-      // means personal inventory — even when Status was left Active/blank or used
-      // legacy wording. Never reclassify an explicit Sold row from personal date.
-      if (status != ItemStatus.sold &&
-          dateSold == null &&
-          personalDate != null) {
-        status = ItemStatus.personal;
-      }
       if (dateSold == null && status == ItemStatus.personal) {
-        dateSold = personalDate;
+        dateSold = _parseDate(getCell(personalDateCol));
       }
       final comments = _parseString(getCell(commentsCol));
       final saleNbr = _parseString(getCell(saleNbrCol));
@@ -790,8 +771,7 @@ class GoogleSheetsService {
   }
 
   /// Imports inventory and expenses from "FlipBin Export" spreadsheet.
-  Future<SheetsImportData> importFromSheets(
-      {String? existingSpreadsheetId}) async {
+  Future<SheetsImportData> importFromSheets({String? existingSpreadsheetId}) async {
     SheetsClient client;
     try {
       client = await _buildClient();
