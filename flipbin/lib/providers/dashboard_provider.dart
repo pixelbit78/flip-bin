@@ -1,84 +1,72 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
-import 'package:flipbin/providers/expense_provider.dart';
-import 'package:flipbin/providers/inventory_provider.dart';
+import 'package:flipbin/providers/database_provider.dart';
 
-/// Aggregated inventory dashboard metrics.
-class InventorySummaryMetrics {
-  final int activeCount;
-  final int soldCount;
-  final double totalInvested;
-
-  const InventorySummaryMetrics({
-    required this.activeCount,
-    required this.soldCount,
-    required this.totalInvested,
-  });
-}
-
-/// Live inventory summary (composes Drift-backed stream providers).
-final dashboardInventorySummaryProvider =
-    Provider<AsyncValue<InventorySummaryMetrics>>((ref) {
-  final activeCount = ref.watch(inventoryCountProvider(ItemStatus.active));
-  final soldCount = ref.watch(inventoryCountProvider(ItemStatus.sold));
-  final totalInvested =
-      ref.watch(inventoryTotalCostProvider(ItemStatus.active));
-
-  if (activeCount.hasError) {
-    return AsyncValue.error(activeCount.error!, activeCount.stackTrace!);
-  }
-  if (soldCount.hasError) {
-    return AsyncValue.error(soldCount.error!, soldCount.stackTrace!);
-  }
-  if (totalInvested.hasError) {
-    return AsyncValue.error(totalInvested.error!, totalInvested.stackTrace!);
-  }
-  if (!activeCount.hasValue || !soldCount.hasValue || !totalInvested.hasValue) {
-    return const AsyncValue.loading();
-  }
-
-  return AsyncValue.data(
-    InventorySummaryMetrics(
-      activeCount: activeCount.requireValue,
-      soldCount: soldCount.requireValue,
-      totalInvested: totalInvested.requireValue,
-    ),
-  );
+/// Mean days-to-sell across Sold items with `dateSold` set. `null` when empty.
+final avgDaysToSellProvider = StreamProvider<double?>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.inventoryItemsDao.watchAvgDaysToSell();
 });
 
-/// Aggregated expense dashboard metrics.
-class ExpenseSummaryMetrics {
-  final double monthTotal;
-  final double allTimeTotal;
+/// Aging capital KPI: Active stock aged ≥ 30 days (cost × qty + count).
+final agingCapitalProvider = StreamProvider<AgingCapitalSummary>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.inventoryItemsDao.watchAgingCapital();
+});
 
-  const ExpenseSummaryMetrics({
-    required this.monthTotal,
-    required this.allTimeTotal,
-  });
+/// Total cost KPI: sum(cost × qty) for ALL Active items.
+final activeTotalCostTimesQtyProvider = StreamProvider<double>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.inventoryItemsDao
+      .watchTotalCostTimesQtyByStatus(ItemStatus.active);
+});
+
+/// Aging capital breakdown buckets (Active 30–59 / 60–89 / 90+).
+final agingBucketsProvider = StreamProvider<AgingBuckets>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.inventoryItemsDao.watchAgingBuckets();
+});
+
+/// Sell-through over the trailing 90-day window.
+///
+/// See [InventoryItemsDao.watchSellThrough] for the cohort definition.
+final sellThroughProvider = StreamProvider<SellThroughMetrics>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.inventoryItemsDao.watchSellThrough();
+});
+
+/// Last 6 calendar months of expense totals (qty × unitPrice), oldest first.
+final monthlyExpensesProvider =
+    StreamProvider<List<MonthlyExpenseTotal>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.expensesDao.watchMonthlyTotals();
+});
+
+/// Top 3 Sold items by fastest days-to-sell.
+final topMoversProvider = StreamProvider<List<InventoryItem>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.inventoryItemsDao.watchTopMovers();
+});
+
+/// Compact currency for dashboard KPIs (`$840`, `$1.6k`).
+String formatDashboardMoney(double value) {
+  final abs = value.abs();
+  if (abs >= 1000) {
+    final k = value / 1000;
+    final text = (k == k.roundToDouble())
+        ? k.toStringAsFixed(0)
+        : k.toStringAsFixed(1);
+    return '\$${text}k';
+  }
+  if (abs >= 100 || value == value.roundToDouble()) {
+    return '\$${value.round()}';
+  }
+  return '\$${value.toStringAsFixed(2)}';
 }
 
-/// Live expense summary (composes Drift-backed stream providers).
-final dashboardExpenseSummaryProvider =
-    Provider<AsyncValue<ExpenseSummaryMetrics>>((ref) {
-  final now = DateTime.now();
-  final currentMonth = DateTime(now.year, now.month, 1);
-  final monthTotal = ref.watch(expenseMonthTotalProvider(currentMonth));
-  final allTimeTotal = ref.watch(expenseTotalProvider);
-
-  if (monthTotal.hasError) {
-    return AsyncValue.error(monthTotal.error!, monthTotal.stackTrace!);
-  }
-  if (allTimeTotal.hasError) {
-    return AsyncValue.error(allTimeTotal.error!, allTimeTotal.stackTrace!);
-  }
-  if (!monthTotal.hasValue || !allTimeTotal.hasValue) {
-    return const AsyncValue.loading();
-  }
-
-  return AsyncValue.data(
-    ExpenseSummaryMetrics(
-      monthTotal: monthTotal.requireValue,
-      allTimeTotal: allTimeTotal.requireValue,
-    ),
-  );
-});
+/// Formats avg days like `18d`, or `—` when unknown.
+String formatAvgDays(double? avg) {
+  if (avg == null) return '—';
+  return '${avg.round()}d';
+}

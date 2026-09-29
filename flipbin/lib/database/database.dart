@@ -64,6 +64,76 @@ extension ExpenseExtension on Expense {
   double get total => quantity * unitPrice;
 }
 
+/// Aging capital KPI: dollars tied up in Active stock at/above a min age.
+class AgingCapitalSummary {
+  final double totalCostTimesQty;
+  final int itemCount;
+
+  const AgingCapitalSummary({
+    required this.totalCostTimesQty,
+    required this.itemCount,
+  });
+}
+
+/// One aging-capital bucket (label, dollars, item count).
+class AgingBucket {
+  final String label;
+  final double totalCostTimesQty;
+  final int itemCount;
+
+  const AgingBucket({
+    required this.label,
+    required this.totalCostTimesQty,
+    required this.itemCount,
+  });
+}
+
+/// Active-stock aging buckets for the dashboard breakdown card.
+class AgingBuckets {
+  final AgingBucket bucket30to59;
+  final AgingBucket bucket60to89;
+  final AgingBucket bucket90plus;
+
+  const AgingBuckets({
+    required this.bucket30to59,
+    required this.bucket60to89,
+    required this.bucket90plus,
+  });
+
+  List<AgingBucket> get asList => [bucket30to59, bucket60to89, bucket90plus];
+
+  double get maxAmount {
+    final amounts = asList.map((b) => b.totalCostTimesQty);
+    if (amounts.isEmpty) return 0;
+    return amounts.reduce((a, b) => a > b ? a : b);
+  }
+}
+
+/// Sell-through metrics for a trailing window (see [InventoryItemsDao.watchSellThrough]).
+class SellThroughMetrics {
+  final int listed;
+  final int sold;
+  final int stillActive;
+  final double rate;
+  final int windowDays;
+
+  const SellThroughMetrics({
+    required this.listed,
+    required this.sold,
+    required this.stillActive,
+    required this.rate,
+    required this.windowDays,
+  });
+}
+
+/// One month's expense total for the monthly-expenses chart.
+class MonthlyExpenseTotal {
+  final DateTime month;
+  final double total;
+
+  const MonthlyExpenseTotal({required this.month, required this.total});
+}
+
 @DriftAccessor(tables: [InventoryItems])
 class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$InventoryItemsDaoMixin {
   InventoryItemsDao(super.db);
@@ -159,6 +229,137 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
     return (select(inventoryItems)..orderBy([(tbl) => OrderingTerm.asc(tbl.dateAdded)])).get();
   }
 
+  /// Sum of `cost × quantity` for items with [status] (dashboard Total cost KPI).
+  ///
+  /// Distinct from [watchTotalCostByStatus], which sums `cost` only.
+  Stream<double> watchTotalCostTimesQtyByStatus(ItemStatus status) {
+    final query = select(inventoryItems)
+      ..where((tbl) => tbl.status.equalsValue(status));
+    return query.watch().map(
+          (items) => items.fold<double>(
+            0.0,
+            (sum, item) => sum + item.cost * item.quantity,
+          ),
+        );
+  }
+
+  /// Mean of `(dateSold − dateAdded).inDays` for Sold items with [dateSold] set.
+  /// Emits `null` when there are no qualifying Sold items.
+  Stream<double?> watchAvgDaysToSell() {
+    final query = select(inventoryItems)
+      ..where((tbl) => tbl.status.equalsValue(ItemStatus.sold));
+    return query.watch().map((items) {
+      final days = <int>[];
+      for (final item in items) {
+        final d = item.daysToSell;
+        if (d != null) days.add(d);
+      }
+      if (days.isEmpty) return null;
+      return days.reduce((a, b) => a + b) / days.length;
+    });
+  }
+
+  /// Aging capital for Active stock: sum(`cost × qty`) and item count where age ≥ [minAgeDays].
+  Stream<AgingCapitalSummary> watchAgingCapital({int minAgeDays = 30}) {
+    final query = select(inventoryItems)
+      ..where((tbl) => tbl.status.equalsValue(ItemStatus.active));
+    return query.watch().map((items) {
+      final now = DateTime.now();
+      var total = 0.0;
+      var count = 0;
+      for (final item in items) {
+        final age = now.difference(item.dateAdded).inDays;
+        if (age >= minAgeDays) {
+          total += item.cost * item.quantity;
+          count += 1;
+        }
+      }
+      return AgingCapitalSummary(totalCostTimesQty: total, itemCount: count);
+    });
+  }
+
+  /// Active-only aging buckets: 30–59 / 60–89 / 90+ with cost×qty and counts.
+  Stream<AgingBuckets> watchAgingBuckets() {
+    final query = select(inventoryItems)
+      ..where((tbl) => tbl.status.equalsValue(ItemStatus.active));
+    return query.watch().map((items) {
+      final now = DateTime.now();
+      var b30 = const AgingBucket(label: '30–59d', totalCostTimesQty: 0, itemCount: 0);
+      var b60 = const AgingBucket(label: '60–89d', totalCostTimesQty: 0, itemCount: 0);
+      var b90 = const AgingBucket(label: '90d+', totalCostTimesQty: 0, itemCount: 0);
+      for (final item in items) {
+        final age = now.difference(item.dateAdded).inDays;
+        final dollars = item.cost * item.quantity;
+        if (age >= 90) {
+          b90 = AgingBucket(
+            label: b90.label,
+            totalCostTimesQty: b90.totalCostTimesQty + dollars,
+            itemCount: b90.itemCount + 1,
+          );
+        } else if (age >= 60) {
+          b60 = AgingBucket(
+            label: b60.label,
+            totalCostTimesQty: b60.totalCostTimesQty + dollars,
+            itemCount: b60.itemCount + 1,
+          );
+        } else if (age >= 30) {
+          b30 = AgingBucket(
+            label: b30.label,
+            totalCostTimesQty: b30.totalCostTimesQty + dollars,
+            itemCount: b30.itemCount + 1,
+          );
+        }
+      }
+      return AgingBuckets(bucket30to59: b30, bucket60to89: b60, bucket90plus: b90);
+    });
+  }
+
+  /// Sell-through over a trailing [windowDays] window (default 90).
+  ///
+  /// Cohort definition:
+  /// - **Still active**: Active items with `dateAdded` within the last [windowDays].
+  /// - **Sold**: Sold items with `dateSold` within the last [windowDays].
+  /// - **Listed**: Still active + Sold.
+  /// - **Rate**: Sold / Listed (0 when Listed is 0).
+  Stream<SellThroughMetrics> watchSellThrough({int windowDays = 90}) {
+    return select(inventoryItems).watch().map((items) {
+      final cutoff = DateTime.now().subtract(Duration(days: windowDays));
+      var stillActive = 0;
+      var sold = 0;
+      for (final item in items) {
+        if (item.status == ItemStatus.active &&
+            !item.dateAdded.isBefore(cutoff)) {
+          stillActive += 1;
+        } else if (item.status == ItemStatus.sold &&
+            item.dateSold != null &&
+            !item.dateSold!.isBefore(cutoff)) {
+          sold += 1;
+        }
+      }
+      final listed = stillActive + sold;
+      final rate = listed == 0 ? 0.0 : sold / listed;
+      return SellThroughMetrics(
+        listed: listed,
+        sold: sold,
+        stillActive: stillActive,
+        rate: rate,
+        windowDays: windowDays,
+      );
+    });
+  }
+
+  /// Top [limit] Sold items by fastest `daysToSell` (ascending). Requires `dateSold`.
+  Stream<List<InventoryItem>> watchTopMovers({int limit = 3}) {
+    final query = select(inventoryItems)
+      ..where((tbl) => tbl.status.equalsValue(ItemStatus.sold));
+    return query.watch().map((items) {
+      final withDays = items.where((i) => i.daysToSell != null).toList()
+        ..sort((a, b) => a.daysToSell!.compareTo(b.daysToSell!));
+      if (withDays.length <= limit) return withDays;
+      return withDays.sublist(0, limit);
+    });
+  }
+
   Future<void> replaceAll(List<InventoryItemsCompanion> items) async {
     await db.transaction(() async {
       await delete(inventoryItems).go();
@@ -239,6 +440,32 @@ class ExpensesDao extends DatabaseAccessor<FlipBinDatabase> with _$ExpensesDaoMi
     return select(expenses).watch().map(
           (items) => items.fold<double>(0.0, (sum, item) => sum + item.total),
         );
+  }
+
+  /// Monthly expense totals (`qty × unitPrice`) for the last [monthCount] calendar months
+  /// ending at [anchor] (defaults to now). Oldest month first.
+  Stream<List<MonthlyExpenseTotal>> watchMonthlyTotals({
+    int monthCount = 6,
+    DateTime? anchor,
+  }) {
+    return select(expenses).watch().map((items) {
+      final now = anchor ?? DateTime.now();
+      final months = <DateTime>[];
+      for (var i = monthCount - 1; i >= 0; i--) {
+        months.add(DateTime(now.year, now.month - i, 1));
+      }
+      return [
+        for (final monthStart in months)
+          MonthlyExpenseTotal(
+            month: monthStart,
+            total: items
+                .where((e) =>
+                    e.date.year == monthStart.year &&
+                    e.date.month == monthStart.month)
+                .fold<double>(0.0, (sum, e) => sum + e.total),
+          ),
+      ];
+    });
   }
 
   Future<List<Expense>> getAllForExport() {
