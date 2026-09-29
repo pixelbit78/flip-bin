@@ -1,8 +1,12 @@
+import 'package:drift/drift.dart' hide isNull, isNotNull;
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
+import 'package:flipbin/providers/database_provider.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/screens/inventory/inventory_list_screen.dart';
 import 'package:flipbin/screens/inventory/item_detail_screen.dart';
@@ -172,5 +176,114 @@ void main() {
 
     // Date Sold field should now show today's date formatted
     expect(find.text('Not Sold'), findsNothing);
+  });
+
+  testWidgets('item detail hides Platform and Sale Number fields',
+      (tester) async {
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          home: ItemDetailScreen(itemId: 'new'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Platform (e.g. PS5, Xbox)'), findsNothing);
+    expect(find.text('Sale Number / Order ID'), findsNothing);
+    expect(find.widgetWithText(ElevatedButton, 'Save'), findsOneWidget);
+  });
+
+  testWidgets('item detail Save stays anchored while form scrolls',
+      (tester) async {
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          home: SizedBox(
+            width: 390,
+            height: 700,
+            child: ItemDetailScreen(itemId: 'new'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final saveButton = find.widgetWithText(ElevatedButton, 'Save');
+    expect(saveButton, findsOneWidget);
+    // Save should be visible without scrolling (anchored at bottom).
+    expect(tester.getRect(saveButton).bottom, lessThanOrEqualTo(700));
+
+    // Scroll the form; Save remains on screen.
+    await tester.drag(
+        find.byType(SingleChildScrollView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    expect(saveButton, findsOneWidget);
+    expect(tester.getRect(saveButton).bottom, lessThanOrEqualTo(700));
+  });
+
+  testWidgets('editing other fields preserves hidden platform and saleNumber', (
+    tester,
+  ) async {
+    final db = FlipBinDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    final id = await db.inventoryItemsDao.insertItem(
+      InventoryItemsCompanion.insert(
+        dateAdded: DateTime(2026, 1, 10),
+        itemDescription: 'Kept Fields Item',
+        type: ItemType.game,
+        cost: 12.0,
+        status: ItemStatus.active,
+        platform: const Value('eBay'),
+        saleNumber: const Value('ORD-999'),
+        comments: const Value('old note'),
+      ),
+    );
+
+    final router = GoRouter(
+      initialLocation: '/inventory/$id',
+      routes: [
+        GoRoute(
+          path: '/inventory',
+          builder: (_, __) => const Scaffold(body: Text('Inventory List')),
+          routes: [
+            GoRoute(
+              path: ':id',
+              builder: (_, state) => ItemDetailScreen(
+                itemId: state.pathParameters['id']!,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          databaseProvider.overrideWithValue(db),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Platform (e.g. PS5, Xbox)'), findsNothing);
+    expect(find.text('Sale Number / Order ID'), findsNothing);
+
+    // Comments field may need scrolling into view behind Save bar.
+    await tester.ensureVisible(find.byType(TextFormField).last);
+    await tester.enterText(find.byType(TextFormField).last, 'updated note');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    final saved = await db.inventoryItemsDao.getById(id);
+    expect(saved.platform, equals('eBay'));
+    expect(saved.saleNumber, equals('ORD-999'));
+    expect(saved.comments, equals('updated note'));
+    expect(saved.itemDescription, equals('Kept Fields Item'));
   });
 }
