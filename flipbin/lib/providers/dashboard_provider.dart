@@ -3,23 +3,17 @@ import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/database_provider.dart';
 
-/// Mean days-to-sell across Sold items with `dateSold` set. `null` when empty.
-final avgDaysToSellProvider = StreamProvider<double?>((ref) {
-  final db = ref.watch(databaseProvider);
-  return db.inventoryItemsDao.watchAvgDaysToSell();
-});
-
-/// Aging capital KPI: Active stock aged ≥ 30 days (cost × qty + count).
-final agingCapitalProvider = StreamProvider<AgingCapitalSummary>((ref) {
-  final db = ref.watch(databaseProvider);
-  return db.inventoryItemsDao.watchAgingCapital();
-});
-
 /// Total cost KPI: sum(cost × qty) for ALL Active items.
 final activeTotalCostTimesQtyProvider = StreamProvider<double>((ref) {
   final db = ref.watch(databaseProvider);
   return db.inventoryItemsDao
       .watchTotalCostTimesQtyByStatus(ItemStatus.active);
+});
+
+/// Total active KPI: count of Active inventory items.
+final activeItemCountProvider = StreamProvider<int>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.inventoryItemsDao.watchCountByStatus(ItemStatus.active);
 });
 
 /// Aging capital breakdown buckets (Active 30–59 / 60–89 / 90+).
@@ -43,12 +37,6 @@ final monthlyExpensesProvider =
   return db.expensesDao.watchMonthlyTotals();
 });
 
-/// Top 3 Sold items by fastest days-to-sell.
-final topMoversProvider = StreamProvider<List<InventoryItem>>((ref) {
-  final db = ref.watch(databaseProvider);
-  return db.inventoryItemsDao.watchTopMovers();
-});
-
 /// Compact currency for dashboard KPIs (`$840`, `$1.6k`).
 String formatDashboardMoney(double value) {
   final abs = value.abs();
@@ -63,10 +51,4 @@ String formatDashboardMoney(double value) {
     return '\$${value.round()}';
   }
   return '\$${value.toStringAsFixed(2)}';
-}
-
-/// Formats avg days like `18d`, or `—` when unknown.
-String formatAvgDays(double? avg) {
-  if (avg == null) return '—';
-  return '${avg.round()}d';
 }

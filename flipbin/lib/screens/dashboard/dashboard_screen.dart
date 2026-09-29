@@ -6,33 +6,29 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:flipbin/database/database.dart';
-import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/dashboard_provider.dart';
 
-/// Home dashboard — Option C (sell-through) matching the approved mockup.
+/// Home dashboard — Option C v2 matching the approved mockup.
 ///
-/// Section order: KPIs → quick actions → aging capital → sell-through →
-/// monthly expenses → top movers. Bottom nav lives in [ShellRoute].
+/// Section order: KPIs (Total cost + Total active) → quick actions →
+/// aging capital → sell-through 90d → monthly expenses.
+/// No Top movers. Bottom nav lives in [ShellRoute].
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
   static const _bg = Color(0xFF1A1D23);
   static const _card = Color(0xFF252830);
   static const _accent = Color(0xFF2196F3);
-  static const _teal = Color(0xFF00BCD4);
-  static const _aging = Color(0xFFFFB74D);
   static const _green = Color(0xFF4CAF50);
   static const _muted = Color(0x8AFFFFFF); // white54
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final avgDaysAsync = ref.watch(avgDaysToSellProvider);
-    final agingAsync = ref.watch(agingCapitalProvider);
     final totalCostAsync = ref.watch(activeTotalCostTimesQtyProvider);
+    final activeCountAsync = ref.watch(activeItemCountProvider);
     final bucketsAsync = ref.watch(agingBucketsProvider);
     final sellThroughAsync = ref.watch(sellThroughProvider);
     final monthsAsync = ref.watch(monthlyExpensesProvider);
-    final moversAsync = ref.watch(topMoversProvider);
 
     return Scaffold(
       backgroundColor: _bg,
@@ -42,42 +38,39 @@ class DashboardScreen extends ConsumerWidget {
         centerTitle: false,
         title: const Text(
           'FlipBin',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 20),
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 24,
+            letterSpacing: -0.2,
+          ),
         ),
         actions: [
           IconButton(
             tooltip: 'Settings',
-            icon: const Icon(Icons.settings, color: Color(0xB3FFFFFF)),
+            icon: const Icon(Icons.settings, color: Color(0xBFFFFFFF)),
             onPressed: () => context.go('/settings'),
           ),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+        padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _KpiRow(
-              avgDaysLabel: formatAvgDays(avgDaysAsync.valueOrNull),
-              agingLabel: formatDashboardMoney(
-                agingAsync.valueOrNull?.totalCostTimesQty ?? 0,
-              ),
-              agingSubtitle:
-                  '${agingAsync.valueOrNull?.itemCount ?? 0} · 30d+',
               totalCostLabel: formatDashboardMoney(
                 totalCostAsync.valueOrNull ?? 0,
               ),
+              activeCountLabel: '${activeCountAsync.valueOrNull ?? 0}',
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 12),
             const _QuickActionsRow(),
-            const SizedBox(height: 8),
+            const SizedBox(height: 14),
             _AgingCapitalCard(buckets: bucketsAsync.valueOrNull),
-            const SizedBox(height: 6),
+            const SizedBox(height: 12),
             _SellThroughCard(metrics: sellThroughAsync.valueOrNull),
-            const SizedBox(height: 6),
+            const SizedBox(height: 12),
             _MonthlyExpensesCard(months: monthsAsync.valueOrNull),
-            const SizedBox(height: 6),
-            _TopMoversCard(movers: moversAsync.valueOrNull),
           ],
         ),
       ),
@@ -89,16 +82,12 @@ class DashboardScreen extends ConsumerWidget {
 
 class _KpiRow extends StatelessWidget {
   const _KpiRow({
-    required this.avgDaysLabel,
-    required this.agingLabel,
-    required this.agingSubtitle,
     required this.totalCostLabel,
+    required this.activeCountLabel,
   });
 
-  final String avgDaysLabel;
-  final String agingLabel;
-  final String agingSubtitle;
   final String totalCostLabel;
+  final String activeCountLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -107,28 +96,19 @@ class _KpiRow extends StatelessWidget {
       children: [
         Expanded(
           child: _KpiCard(
-            label: 'Avg days to sell',
-            value: avgDaysLabel,
-            valueColor: DashboardScreen._teal,
-            subtitle: 'on Sold items',
-          ),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: _KpiCard(
-            label: 'Aging capital',
-            value: agingLabel,
-            valueColor: DashboardScreen._aging,
-            subtitle: agingSubtitle,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: _KpiCard(
             label: 'Total cost',
             value: totalCostLabel,
             valueColor: DashboardScreen._accent,
-            subtitle: 'Active · cost×qty',
+            subtitle: 'Active · cost × qty',
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _KpiCard(
+            label: 'Total active',
+            value: activeCountLabel,
+            valueColor: DashboardScreen._green,
+            subtitle: 'items in stock',
           ),
         ),
       ],
@@ -152,7 +132,7 @@ class _KpiCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       decoration: BoxDecoration(
         color: DashboardScreen._card,
         borderRadius: BorderRadius.circular(12),
@@ -165,29 +145,29 @@ class _KpiCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 10,
+              fontSize: 12,
               color: DashboardScreen._muted,
-              letterSpacing: 0.3,
-              fontWeight: FontWeight.w500,
+              letterSpacing: 0.4,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 6),
           Text(
             value,
             style: TextStyle(
-              fontSize: 17,
+              fontSize: 28,
               fontWeight: FontWeight.w700,
               height: 1.1,
               color: valueColor,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Text(
             subtitle,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 10,
+              fontSize: 13,
               color: DashboardScreen._muted,
             ),
           ),
@@ -214,7 +194,7 @@ class _QuickActionsRow extends StatelessWidget {
             onTap: () => context.go('/scan'),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Expanded(
           child: _QuickAction(
             label: 'Add Item',
@@ -223,7 +203,7 @@ class _QuickActionsRow extends StatelessWidget {
             onTap: () => context.go('/inventory/new'),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Expanded(
           child: _QuickAction(
             label: 'Expense',
@@ -259,25 +239,25 @@ class _QuickAction extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(6, 8, 6, 6),
+          padding: const EdgeInsets.fromLTRB(8, 14, 8, 12),
           child: Column(
             children: [
               Container(
-                width: 32,
-                height: 32,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
                   color: color,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, size: 20, color: Colors.white),
+                child: Icon(icon, size: 24, color: Colors.white),
               ),
-              const SizedBox(height: 5),
+              const SizedBox(height: 8),
               Text(
                 label,
                 style: const TextStyle(
-                  fontSize: 11,
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xD9FFFFFF),
+                  color: Color(0xE6FFFFFF),
                 ),
               ),
             ],
@@ -304,7 +284,7 @@ class _DashCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: DashboardScreen._card,
         borderRadius: BorderRadius.circular(12),
@@ -318,14 +298,14 @@ class _DashCard extends StatelessWidget {
                 child: Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: const Color(0x0FFFFFFF),
                   borderRadius: BorderRadius.circular(10),
@@ -333,14 +313,15 @@ class _DashCard extends StatelessWidget {
                 child: Text(
                   badge,
                   style: const TextStyle(
-                    fontSize: 10,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
                     color: DashboardScreen._muted,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 14),
           child,
         ],
       ),
@@ -389,7 +370,7 @@ class _AgingCapitalCard extends StatelessWidget {
       child: Column(
         children: [
           for (var i = 0; i < data.asList.length; i++) ...[
-            if (i > 0) const SizedBox(height: 6),
+            if (i > 0) const SizedBox(height: 12),
             _AgingRow(
               bucket: data.asList[i],
               color: _colors[i],
@@ -415,28 +396,29 @@ class _AgingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fraction =
-        maxAmount <= 0 ? 0.0 : (bucket.totalCostTimesQty / maxAmount).clamp(0.0, 1.0);
+    final fraction = maxAmount <= 0
+        ? 0.0
+        : (bucket.totalCostTimesQty / maxAmount).clamp(0.0, 1.0);
 
     return Row(
       children: [
         SizedBox(
-          width: 52,
+          width: 64,
           child: Text(
             bucket.label,
             style: const TextStyle(
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: Color(0xB3FFFFFF),
+              color: Color(0xBFFFFFFF),
             ),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Expanded(
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(5),
             child: SizedBox(
-              height: 8,
+              height: 10,
               child: Stack(
                 children: [
                   Container(color: const Color(0x14FFFFFF)),
@@ -445,7 +427,7 @@ class _AgingRow extends StatelessWidget {
                     child: Container(
                       decoration: BoxDecoration(
                         color: color,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(5),
                       ),
                     ),
                   ),
@@ -454,24 +436,25 @@ class _AgingRow extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         SizedBox(
-          width: 64,
+          width: 72,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
                 formatDashboardMoney(bucket.totalCostTimesQty),
                 style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xD9FFFFFF),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
                 ),
               ),
+              const SizedBox(height: 2),
               Text(
                 '${bucket.itemCount} items',
                 style: const TextStyle(
-                  fontSize: 10,
+                  fontSize: 12,
                   fontWeight: FontWeight.w500,
                   color: DashboardScreen._muted,
                 ),
@@ -509,8 +492,8 @@ class _SellThroughCard extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 88,
-            height: 88,
+            width: 118,
+            height: 118,
             child: CustomPaint(
               painter: _SellThroughRingPainter(rate: m.rate),
               child: Center(
@@ -520,17 +503,17 @@ class _SellThroughCard extends StatelessWidget {
                     Text(
                       '$pct%',
                       style: const TextStyle(
-                        fontSize: 20,
+                        fontSize: 28,
                         fontWeight: FontWeight.w700,
                         color: DashboardScreen._green,
                         height: 1,
                       ),
                     ),
-                    const SizedBox(height: 1),
+                    const SizedBox(height: 3),
                     const Text(
                       'sold',
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: 12,
                         color: DashboardScreen._muted,
                       ),
                     ),
@@ -539,7 +522,7 @@ class _SellThroughCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 18),
           Expanded(
             child: Column(
               children: [
@@ -575,13 +558,13 @@ class _StStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         children: [
           Text(
             label,
             style: const TextStyle(
-              fontSize: 11,
+              fontSize: 14,
               color: DashboardScreen._muted,
             ),
           ),
@@ -589,7 +572,7 @@ class _StStat extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 18,
               fontWeight: FontWeight.w700,
               color: valueColor ?? Colors.white,
             ),
@@ -608,7 +591,7 @@ class _SellThroughRingPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final stroke = size.width * 0.1;
+    const stroke = 12.0;
     final radius = (size.width - stroke) / 2;
 
     final track = Paint()
@@ -664,7 +647,7 @@ class _MonthlyExpensesCard extends StatelessWidget {
       title: 'Monthly expenses',
       badge: yearLabel,
       child: SizedBox(
-        height: 96,
+        height: 150,
         child: CustomPaint(
           painter: _MonthlyBarsPainter(months: data, now: now),
           child: const SizedBox.expand(),
@@ -684,9 +667,9 @@ class _MonthlyBarsPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (months.isEmpty) return;
 
-    const leftGutter = 28.0;
-    const bottomGutter = 18.0;
-    const topPad = 14.0;
+    const leftGutter = 36.0;
+    const bottomGutter = 28.0;
+    const topPad = 16.0;
     final chartW = size.width - leftGutter;
     final chartH = size.height - bottomGutter - topPad;
     final maxVal = months.map((m) => m.total).fold<double>(0, math.max);
@@ -712,18 +695,18 @@ class _MonthlyBarsPainter extends CustomPainter {
         text: TextSpan(
           text: label,
           style: const TextStyle(
-            fontSize: 9,
-            color: Color(0x66FFFFFF),
+            fontSize: 12,
+            color: Color(0x80FFFFFF),
           ),
         ),
         textDirection: ui.TextDirection.ltr,
-      )..layout(maxWidth: leftGutter - 4);
-      tp.paint(canvas, Offset(leftGutter - 4 - tp.width, y - tp.height / 2));
+      )..layout(maxWidth: leftGutter - 6);
+      tp.paint(canvas, Offset(leftGutter - 6 - tp.width, y - tp.height / 2));
     }
 
     final n = months.length;
     final slot = chartW / n;
-    final barW = math.min(28.0, slot * 0.55);
+    final barW = math.min(32.0, slot * 0.55);
     final monthFmt = DateFormat('MMM');
 
     for (var i = 0; i < n; i++) {
@@ -736,7 +719,7 @@ class _MonthlyBarsPainter extends CustomPainter {
       final top = topPad + chartH - h;
       final rect = RRect.fromRectAndRadius(
         Rect.fromLTWH(left, top, barW, math.max(h, 0)),
-        const Radius.circular(4),
+        const Radius.circular(5),
       );
       final barPaint = Paint()
         ..color = isCurrent
@@ -750,15 +733,15 @@ class _MonthlyBarsPainter extends CustomPainter {
         text: TextSpan(
           text: label,
           style: const TextStyle(
-            fontSize: 10,
-            color: Color(0x73FFFFFF),
+            fontSize: 12,
+            color: Color(0x8CFFFFFF),
           ),
         ),
         textDirection: ui.TextDirection.ltr,
       )..layout();
       ltp.paint(
         canvas,
-        Offset(cx - ltp.width / 2, size.height - bottomGutter + 4),
+        Offset(cx - ltp.width / 2, size.height - bottomGutter + 6),
       );
 
       // Current-month value callout
@@ -768,8 +751,8 @@ class _MonthlyBarsPainter extends CustomPainter {
           text: TextSpan(
             text: vLabel,
             style: const TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w600,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
               color: Color(0xFF64B5F6),
             ),
           ),
@@ -796,167 +779,13 @@ class _MonthlyBarsPainter extends CustomPainter {
   }
 
   static String _axisLabel(double v) {
-    if (v >= 1000) return '\$${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}k';
+    if (v >= 1000) {
+      return '\$${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}k';
+    }
     return '\$${v.round()}';
   }
 
   @override
   bool shouldRepaint(covariant _MonthlyBarsPainter oldDelegate) =>
       oldDelegate.months != months || oldDelegate.now != now;
-}
-
-// ─── Top movers ─────────────────────────────────────────────────────────────
-
-class _TopMoversCard extends StatelessWidget {
-  const _TopMoversCard({required this.movers});
-
-  final List<InventoryItem>? movers;
-
-  @override
-  Widget build(BuildContext context) {
-    final list = movers ?? const <InventoryItem>[];
-
-    return _DashCard(
-      title: 'Top movers',
-      badge: 'Fastest sold',
-      child: list.isEmpty
-          ? const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                'No sold items yet',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: DashboardScreen._muted,
-                ),
-              ),
-            )
-          : Column(
-              children: [
-                for (var i = 0; i < list.length; i++) ...[
-                  if (i > 0)
-                    const Divider(height: 1, color: Color(0x0FFFFFFF)),
-                  _MoverRow(rank: i + 1, item: list[i]),
-                ],
-              ],
-            ),
-    );
-  }
-}
-
-class _MoverRow extends StatelessWidget {
-  const _MoverRow({required this.rank, required this.item});
-
-  final int rank;
-  final InventoryItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    final days = item.daysToSell ?? 0;
-    final costLabel = formatDashboardMoney(item.cost);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        children: [
-          Container(
-            width: 20,
-            height: 20,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: const Color(0x2E2196F3),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              '$rank',
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: DashboardScreen._accent,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.itemDescription,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 1),
-                Row(
-                  children: [
-                    _MoverTypeBadge(type: item.type),
-                    Text(
-                      ' · cost $costLabel',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: DashboardScreen._muted,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Text(
-            '${days}d',
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: DashboardScreen._teal,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MoverTypeBadge extends StatelessWidget {
-  const _MoverTypeBadge({required this.type});
-
-  final ItemType type;
-
-  @override
-  Widget build(BuildContext context) {
-    final (bg, fg) = _colorsFor(type);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(7),
-      ),
-      child: Text(
-        type.label,
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w600,
-          color: fg,
-        ),
-      ),
-    );
-  }
-
-  static (Color, Color) _colorsFor(ItemType type) {
-    switch (type) {
-      case ItemType.dvd:
-      case ItemType.bluray:
-        return (const Color(0x2E2196F3), const Color(0xFF64B5F6));
-      case ItemType.book:
-        return (const Color(0x2EFF9800), const Color(0xFFFFB74D));
-      case ItemType.game:
-        return (const Color(0x2E4CAF50), const Color(0xFF81C784));
-      case ItemType.cd:
-        return (const Color(0x2E00BCD4), const Color(0xFF4DD0E1));
-      case ItemType.other:
-        return (const Color(0x2E9E9E9E), const Color(0xFFBDBDBD));
-    }
-  }
 }

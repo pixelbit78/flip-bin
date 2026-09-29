@@ -8,16 +8,13 @@ import 'package:flipbin/screens/dashboard/dashboard_screen.dart';
 
 void main() {
   List<Override> dashboardOverrides({
-    double? avgDays = 18,
-    AgingCapitalSummary? aging,
     double totalCost = 1600,
+    int activeCount = 54,
     AgingBuckets? buckets,
     SellThroughMetrics? sellThrough,
     List<MonthlyExpenseTotal>? months,
-    List<InventoryItem>? movers,
   }) {
     final now = DateTime.now();
-    aging ??= const AgingCapitalSummary(totalCostTimesQty: 840, itemCount: 23);
     buckets ??= const AgingBuckets(
       bucket30to59: AgingBucket(
         label: '30–59d',
@@ -49,21 +46,18 @@ void main() {
           total: i == 0 ? 87 : 50.0 + i * 10,
         ),
     ];
-    movers ??= const [];
 
     return [
-      avgDaysToSellProvider.overrideWith((ref) => Stream.value(avgDays)),
-      agingCapitalProvider.overrideWith((ref) => Stream.value(aging!)),
       activeTotalCostTimesQtyProvider
           .overrideWith((ref) => Stream.value(totalCost)),
+      activeItemCountProvider.overrideWith((ref) => Stream.value(activeCount)),
       agingBucketsProvider.overrideWith((ref) => Stream.value(buckets!)),
       sellThroughProvider.overrideWith((ref) => Stream.value(sellThrough!)),
       monthlyExpensesProvider.overrideWith((ref) => Stream.value(months!)),
-      topMoversProvider.overrideWith((ref) => Stream.value(movers!)),
     ];
   }
 
-  testWidgets('dashboard Option C shows KPIs, sections, and quick actions',
+  testWidgets('dashboard Option C v2 shows KPIs, sections, and quick actions',
       (tester) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -74,18 +68,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('FlipBin'), findsOneWidget);
-    expect(find.text('18d'), findsOneWidget);
-    expect(find.text('on Sold items'), findsOneWidget);
-    expect(find.text('\$840'), findsOneWidget);
-    expect(find.text('23 · 30d+'), findsOneWidget);
     expect(find.text('\$1.6k'), findsOneWidget);
-    expect(find.text('Active · cost×qty'), findsOneWidget);
+    expect(find.text('Active · cost × qty'), findsOneWidget);
+    expect(find.text('54'), findsWidgets); // KPI + still active
+    expect(find.text('items in stock'), findsOneWidget);
 
     expect(find.text('Scan'), findsOneWidget);
     expect(find.text('Add Item'), findsOneWidget);
     expect(find.text('Expense'), findsOneWidget);
 
-    expect(find.text('Aging capital'), findsWidgets);
+    expect(find.text('Aging capital'), findsOneWidget);
     expect(find.text('Active stock'), findsOneWidget);
     expect(find.text('30–59d'), findsOneWidget);
     expect(find.text('60–89d'), findsOneWidget);
@@ -98,11 +90,12 @@ void main() {
     expect(find.text('246'), findsOneWidget);
     expect(find.text('192'), findsOneWidget);
     expect(find.text('Still active'), findsOneWidget);
-    expect(find.text('54'), findsOneWidget);
 
     expect(find.text('Monthly expenses'), findsOneWidget);
-    expect(find.text('Top movers'), findsOneWidget);
-    expect(find.text('Fastest sold'), findsOneWidget);
+    expect(find.text('Top movers'), findsNothing);
+    expect(find.text('Fastest sold'), findsNothing);
+    expect(find.text('Avg days to sell'), findsNothing);
+    expect(find.text('on Sold items'), findsNothing);
   });
 
   testWidgets('settings gear navigates to /settings', (tester) async {
@@ -221,7 +214,5 @@ void main() {
     expect(formatDashboardMoney(1600), '\$1.6k');
     expect(formatDashboardMoney(1000), '\$1k');
     expect(formatDashboardMoney(87), '\$87');
-    expect(formatAvgDays(18.4), '18d');
-    expect(formatAvgDays(null), '—');
   });
 }
