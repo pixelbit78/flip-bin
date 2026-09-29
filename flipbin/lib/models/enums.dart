@@ -102,6 +102,10 @@ enum ItemStatus {
         return val;
       }
     }
+    // Legacy / spreadsheet variants (e.g. "Personal Use", "Personal Item").
+    if (lower.startsWith('personal')) {
+      return ItemStatus.personal;
+    }
     return ItemStatus.active;
   }
 }
