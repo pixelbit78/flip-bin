@@ -118,6 +118,78 @@ void main() {
     expect(capturedFilter?.searchQuery, equals('mario'));
   });
 
+  testWidgets('search field shows barcode scan suffix icon', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          inventoryListProvider(const InventoryFilter()).overrideWith(
+            (ref) => Stream.value(sampleItems),
+          ),
+        ],
+        child: const MaterialApp(
+          home: InventoryListScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.qr_code_scanner), findsOneWidget);
+    // v2: no per-row Sold / Marked sold actions
+    expect(find.widgetWithText(ElevatedButton, 'Sold'), findsNothing);
+    expect(find.widgetWithText(ElevatedButton, 'Marked sold'), findsNothing);
+    expect(find.text('Marked sold'), findsNothing);
+  });
+
+  testWidgets('scan suffix puts barcode into search and filters', (tester) async {
+    InventoryFilter? capturedFilter;
+
+    final router = GoRouter(
+      initialLocation: '/inventory',
+      routes: [
+        GoRoute(
+          path: '/inventory',
+          builder: (_, __) => const InventoryListScreen(),
+        ),
+        GoRoute(
+          path: '/scan',
+          builder: (context, state) {
+            // Simulate a successful filter scan returning a barcode.
+            assert(state.uri.queryParameters['mode'] == 'filter');
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (context.mounted) {
+                context.pop('012345678905');
+              }
+            });
+            return const Scaffold(
+              body: Center(child: Text('Fake filter scanner')),
+            );
+          },
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          inventoryListProvider.overrideWith(
+            (ref, filter) {
+              capturedFilter = filter;
+              return Stream.value(sampleItems);
+            },
+          ),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.qr_code_scanner));
+    await tester.pumpAndSettle();
+
+    expect(find.text('012345678905'), findsOneWidget);
+    expect(capturedFilter?.searchQuery, equals('012345678905'));
+  });
+
   testWidgets('item detail form validates required fields', (tester) async {
     await tester.pumpWidget(
       const ProviderScope(

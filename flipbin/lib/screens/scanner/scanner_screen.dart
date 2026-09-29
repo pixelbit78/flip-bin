@@ -18,8 +18,15 @@ import 'package:flipbin/utils/web_camera_permission.dart';
 import 'package:flipbin/widgets/status_badge.dart';
 
 /// Screen providing live camera barcode scanning with manual UPC lookup fallback.
+///
+/// When [returnBarcodeOnly] is true (Inventory search filter), a successful
+/// scan or manual entry pops the route with the raw barcode string and skips
+/// UPC lookup / Add to Inventory. Default false keeps the add-item flow.
 class ScannerScreen extends ConsumerStatefulWidget {
-  const ScannerScreen({super.key});
+  const ScannerScreen({super.key, this.returnBarcodeOnly = false});
+
+  /// If true, pop with the scanned barcode instead of running product lookup.
+  final bool returnBarcodeOnly;
 
   @override
   ConsumerState<ScannerScreen> createState() => _ScannerScreenState();
@@ -67,6 +74,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   /// Debounce identical codes so a held barcode does not spam lookups.
   String? _lastHandledCode;
   DateTime? _lastHandledAt;
+
+  /// Ensures filter-only mode pops at most once per visit.
+  bool _returnedOnce = false;
 
   @override
   void initState() {
@@ -273,6 +283,14 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     }
   }
 
+  void _returnBarcode(String code) {
+    if (_returnedOnce || !mounted) return;
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) return;
+    _returnedOnce = true;
+    context.pop(trimmed);
+  }
+
   void _handleBarcodeCapture(BarcodeCapture capture) {
     final barcodes = capture.barcodes;
     for (final barcode in barcodes) {
@@ -291,16 +309,23 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
       if (_manualController.text != raw) {
         _manualController.text = raw;
       }
-      ref.read(scannerProvider.notifier).onBarcodeDetected(raw);
+      if (widget.returnBarcodeOnly) {
+        _returnBarcode(raw);
+      } else {
+        ref.read(scannerProvider.notifier).onBarcodeDetected(raw);
+      }
       break;
     }
   }
 
   void _onManualLookup() {
     final upc = _manualController.text.trim();
-    if (upc.isNotEmpty) {
-      ref.read(scannerProvider.notifier).onBarcodeDetected(upc);
+    if (upc.isEmpty) return;
+    if (widget.returnBarcodeOnly) {
+      _returnBarcode(upc);
+      return;
     }
+    ref.read(scannerProvider.notifier).onBarcodeDetected(upc);
   }
 
   Widget _buildCameraPlaceholder({
@@ -454,7 +479,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Barcode Scanner'),
+        title: Text(
+          widget.returnBarcodeOnly ? 'Scan to filter' : 'Barcode Scanner',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.flash_on),
@@ -490,9 +517,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                   Expanded(
                     child: TextField(
                       controller: _manualController,
-                      decoration: const InputDecoration(
-                        hintText: 'Enter UPC manually...',
-                        prefixIcon: Icon(Icons.keyboard),
+                      decoration: InputDecoration(
+                        hintText: widget.returnBarcodeOnly
+                            ? 'Enter barcode to filter...'
+                            : 'Enter UPC manually...',
+                        prefixIcon: const Icon(Icons.keyboard),
                         isDense: true,
                       ),
                       keyboardType: TextInputType.number,
@@ -502,13 +531,13 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                   const SizedBox(width: 8),
                   ElevatedButton(
                     onPressed: _onManualLookup,
-                    child: const Text('Look Up'),
+                    child: Text(widget.returnBarcodeOnly ? 'Use' : 'Look Up'),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-            if (scanState.isLookingUp)
+            if (!widget.returnBarcodeOnly && scanState.isLookingUp)
               const Padding(
                 padding: EdgeInsets.all(32.0),
                 child: Column(
@@ -519,7 +548,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                   ],
                 ),
               )
-            else if (scanState.result != null)
+            else if (!widget.returnBarcodeOnly && scanState.result != null)
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Card(
@@ -648,7 +677,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                   ),
                 ),
               )
-            else if (scanState.error != null || scanState.rawBarcode != null)
+            else if (!widget.returnBarcodeOnly &&
+                (scanState.error != null || scanState.rawBarcode != null))
               Padding(
                 padding: const EdgeInsets.all(24.0),
                 child: Column(
@@ -685,7 +715,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                 ),
               ),
             // Inventory matches for the current UPC (independent of catalog lookup).
-            if (scanState.rawBarcode != null &&
+            if (!widget.returnBarcodeOnly &&
+                scanState.rawBarcode != null &&
                 scanState.rawBarcode!.trim().isNotEmpty)
               _buildInventoryMatches(scanState.rawBarcode!.trim()),
           ],

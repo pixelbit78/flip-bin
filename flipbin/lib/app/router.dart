@@ -69,7 +69,10 @@ class FlipBinRouter {
           ),
           GoRoute(
             path: '/scan',
-            builder: (context, state) => const ScannerScreen(),
+            builder: (context, state) {
+              final mode = state.uri.queryParameters['mode'];
+              return ScannerScreen(returnBarcodeOnly: mode == 'filter');
+            },
           ),
           GoRoute(
             path: '/settings',

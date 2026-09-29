@@ -26,6 +26,19 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
     super.dispose();
   }
 
+  /// Opens the camera scanner in filter-only mode and applies the barcode
+  /// to the search field (does not start the add-item / UPC lookup flow).
+  Future<void> _openFilterScanner() async {
+    final code = await context.push<String>('/scan?mode=filter');
+    if (!mounted || code == null) return;
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) return;
+    _searchController.text = trimmed;
+    _searchController.selection =
+        TextSelection.collapsed(offset: trimmed.length);
+    setState(() => _searchQuery = trimmed);
+  }
+
   @override
   Widget build(BuildContext context) {
     final filter = InventoryFilter(
@@ -48,15 +61,47 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
               decoration: InputDecoration(
                 hintText: 'Search items, barcodes...',
                 prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => _searchQuery = '');
-                        },
-                      )
-                    : null,
+                suffixIcon: Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_searchQuery.isNotEmpty)
+                        IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        ),
+                      Tooltip(
+                        message: 'Scan barcode into search',
+                        child: Material(
+                          color: const Color(0xFF2196F3).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: _openFilterScanner,
+                            child: const SizedBox(
+                              width: 42,
+                              height: 42,
+                              child: Icon(
+                                Icons.qr_code_scanner,
+                                color: Color(0xFF2196F3),
+                                size: 24,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                suffixIconConstraints: const BoxConstraints(
+                  minHeight: 48,
+                  minWidth: 48,
+                ),
                 isDense: true,
               ),
               onChanged: (val) {
