@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flipbin/providers/scanner_provider.dart';
 import 'package:flipbin/services/barcode_lookup_service.dart';
+import 'package:flipbin/services/camera_permission_store.dart';
 import 'package:flipbin/utils/proxied_image_url.dart';
+import 'package:flipbin/utils/web_camera_permission.dart';
 
 /// Screen providing live camera barcode scanning with manual UPC lookup fallback.
 class ScannerScreen extends ConsumerStatefulWidget {
@@ -19,10 +22,10 @@ class ScannerScreen extends ConsumerStatefulWidget {
 
 class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   final TextEditingController _manualController = TextEditingController();
+  final CameraPermissionStore _cameraPermissionStore = CameraPermissionStore();
 
-  /// Auto-start on all platforms so the scanner opens without an Enable Camera
-  /// button. MobileScanner mounts first; we also kick start() after the first
-  /// frame as a belt-and-suspenders path for web attach timing.
+  /// Prefer autoStart alone. Do NOT also call start() while autoStart is
+  /// initializing — that races and throws MobileScannerErrorCode.controllerInitializing.
   late final MobileScannerController _scannerController =
       MobileScannerController(
     detectionSpeed: DetectionSpeed.unrestricted,
@@ -46,6 +49,14 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
 
   bool _cameraStarted = false;
   bool _startingCamera = true;
+
+  /// One-shot overlay when autoStart failed because the browser needs a
+  /// user gesture to show the camera permission prompt. Disappears after grant.
+  bool _needsAllowTap = false;
+
+  /// Hard denial — show site-settings instructions, not a silent retry loop.
+  bool _permissionHardDenied = false;
+
   String? _cameraStartError;
 
   /// Debounce identical codes so a held barcode does not spam lookups.
@@ -68,20 +79,193 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
       },
       cancelOnError: false,
     );
-
-    // After MobileScanner mounts and attaches, ensure start() has been called.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_ensureCameraStarted());
-    });
+    _scannerController.addListener(_onScannerStateChanged);
   }
 
   @override
   void dispose() {
+    _scannerController.removeListener(_onScannerStateChanged);
     _barcodeSubscription?.cancel();
     _barcodeSubscription = null;
     _manualController.dispose();
     unawaited(_scannerController.dispose());
     super.dispose();
+  }
+
+  void _onScannerStateChanged() {
+    if (!mounted) return;
+    final state = _scannerController.value;
+
+    if (state.isRunning) {
+      setState(() {
+        _cameraStarted = true;
+        _startingCamera = false;
+        _needsAllowTap = false;
+        _permissionHardDenied = false;
+        _cameraStartError = null;
+      });
+      unawaited(_cameraPermissionStore.setAllowed(true));
+      return;
+    }
+
+    if (state.isStarting) {
+      if (!_startingCamera || _cameraStartError != null || _needsAllowTap) {
+        setState(() {
+          _startingCamera = true;
+          _cameraStartError = null;
+          _needsAllowTap = false;
+        });
+      }
+      return;
+    }
+
+    final error = state.error;
+    if (error != null && !_cameraStarted) {
+      unawaited(_handleControllerError(error));
+    }
+  }
+
+  Future<void> _handleControllerError(MobileScannerException error) async {
+    if (!mounted) return;
+
+    final denied = _isPermissionDenied(error);
+    if (denied) {
+      final permState = kIsWeb ? await queryCameraPermissionState() : null;
+      if (!mounted) return;
+
+      // Browser permanently denied → clear site-settings UX.
+      if (permState == 'denied') {
+        setState(() {
+          _startingCamera = false;
+          _cameraStarted = false;
+          _needsAllowTap = false;
+          _permissionHardDenied = true;
+          _cameraStartError = _deniedMessage();
+        });
+        unawaited(_cameraPermissionStore.setAllowed(false));
+        return;
+      }
+
+      // Still "prompt" (or unknown): autoStart likely blocked without a
+      // user gesture. Show one-shot Allow camera; tap provides the gesture.
+      setState(() {
+        _startingCamera = false;
+        _cameraStarted = false;
+        _permissionHardDenied = false;
+        _needsAllowTap = true;
+        _cameraStartError = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _startingCamera = false;
+      _cameraStarted = false;
+      _needsAllowTap = false;
+      _permissionHardDenied = false;
+      _cameraStartError = _friendlyCameraError(error);
+    });
+  }
+
+  bool _isPermissionDenied(Object e) {
+    if (e is MobileScannerException) {
+      if (e.errorCode == MobileScannerErrorCode.permissionDenied) return true;
+      final msg = (e.errorDetails?.message ?? '').toLowerCase();
+      if (msg.contains('notallowed') ||
+          msg.contains('permission') ||
+          msg.contains('denied')) {
+        return true;
+      }
+    }
+    final raw = e.toString().toLowerCase();
+    return raw.contains('permission') ||
+        raw.contains('notallowed') ||
+        raw.contains('denied') ||
+        raw.contains('notallowederror');
+  }
+
+  String _deniedMessage() {
+    return 'Camera permission was denied for this site.\n\n'
+        'To enable it on Chrome Android (including the installed FlipBin app):\n'
+        '1. Open Chrome → tap the lock / tune icon next to the URL '
+        '(or Menu → Settings → Site settings → Camera).\n'
+        '2. Set Camera to Allow for flip-bin.vercel.app.\n'
+        '3. Kill and reopen FlipBin — the camera will start automatically.\n\n'
+        'You can also enter a UPC manually below.';
+  }
+
+  String _friendlyCameraError(Object e) {
+    if (_isPermissionDenied(e)) return _deniedMessage();
+    final raw = e.toString();
+    final lower = raw.toLowerCase();
+    if (lower.contains('notfound') || lower.contains('no device')) {
+      return 'No camera was found on this device. Enter a UPC manually below.';
+    }
+    // Never surface the double-start race as a user-facing failure.
+    if (lower.contains('controllerinitializing') ||
+        lower.contains('still initializing')) {
+      return 'Camera is still starting. Please wait a moment.';
+    }
+    return 'Could not start the camera. Check browser permissions or enter a '
+        'UPC manually below.\n$raw';
+  }
+
+  /// Manual start ONLY after autoStart already failed and the user taps.
+  /// Provides the user gesture some browsers require for getUserMedia.
+  Future<void> _onAllowCameraTap() async {
+    if (_startingCamera || _cameraStarted) return;
+    setState(() {
+      _startingCamera = true;
+      _needsAllowTap = false;
+      _cameraStartError = null;
+      _permissionHardDenied = false;
+    });
+
+    try {
+      // autoStart already finished (failed). Safe to call start() once here.
+      if (!_scannerController.value.isRunning &&
+          !_scannerController.value.isStarting) {
+        await _scannerController.start();
+      }
+      // Success / permission error is reflected via the controller listener.
+      if (!mounted) return;
+      if (!_scannerController.value.isRunning &&
+          _scannerController.value.error != null) {
+        await _handleControllerError(_scannerController.value.error!);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      // Ignore the initializing race if somehow still in flight.
+      if (e is MobileScannerException &&
+          e.errorCode == MobileScannerErrorCode.controllerInitializing) {
+        setState(() => _startingCamera = true);
+        return;
+      }
+      if (_isPermissionDenied(e)) {
+        await _handleControllerError(
+          e is MobileScannerException
+              ? e
+              : MobileScannerException(
+                  errorCode: MobileScannerErrorCode.permissionDenied,
+                  errorDetails: MobileScannerErrorDetails(message: e.toString()),
+                ),
+        );
+        return;
+      }
+      setState(() {
+        _startingCamera = false;
+        _cameraStartError = _friendlyCameraError(e);
+      });
+    }
+  }
+
+  Future<void> _openCameraHelp() async {
+    final uri = Uri.parse(
+      'https://support.google.com/chrome/answer/2693767?hl=en',
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   void _handleBarcodeCapture(BarcodeCapture capture) {
@@ -107,59 +291,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     }
   }
 
-  Future<void> _ensureCameraStarted() async {
-    if (!mounted) return;
-    if (_cameraStarted) return;
-
-    setState(() {
-      _startingCamera = true;
-      _cameraStartError = null;
-    });
-
-    try {
-      // autoStart may already be running; start() is safe / no-ops if active
-      // on mobile_scanner 7.x after attach. Brief delay lets web attach finish.
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      if (!mounted) return;
-
-      if (!_scannerController.value.isRunning) {
-        await _scannerController.start();
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _cameraStarted = true;
-        _startingCamera = false;
-        _cameraStartError = null;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _startingCamera = false;
-        _cameraStarted = false;
-        _cameraStartError = _friendlyCameraError(e);
-      });
-    }
-  }
-
-  String _friendlyCameraError(Object e) {
-    final raw = e.toString();
-    final lower = raw.toLowerCase();
-    if (lower.contains('permission') ||
-        lower.contains('notallowed') ||
-        lower.contains('denied') ||
-        lower.contains('notallowederror')) {
-      return 'Camera permission was denied. Allow camera access for this site '
-          'in your browser settings, then reload this page. You can also enter '
-          'a UPC manually below.';
-    }
-    if (lower.contains('notfound') || lower.contains('no device')) {
-      return 'No camera was found on this device. Enter a UPC manually below.';
-    }
-    return 'Could not start the camera. Check browser permissions or enter a '
-        'UPC manually below.\n$raw';
-  }
-
   void _onManualLookup() {
     final upc = _manualController.text.trim();
     if (upc.isNotEmpty) {
@@ -177,40 +308,43 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
       padding: const EdgeInsets.all(24.0),
       color: const Color(0xFF1E222B),
       child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 48, color: Colors.orangeAccent),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 48, color: Colors.orangeAccent),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 13,
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            if (action != null) ...[
-              const SizedBox(height: 16),
-              action,
+              if (action != null) ...[
+                const SizedBox(height: 16),
+                action,
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildViewfinder(BuildContext context) {
-    // Always keep MobileScanner mounted so attach() completes before start().
+    // Always keep MobileScanner mounted so attach() completes and autoStart
+    // can request getUserMedia. Overlays handle loading / allow / denied UX.
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -218,16 +352,26 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
           controller: _scannerController,
           fit: BoxFit.cover,
           errorBuilder: (context, error) {
+            // Prefer our overlays; fall through only if we have nothing better.
+            if (_needsAllowTap ||
+                _permissionHardDenied ||
+                _cameraStartError != null ||
+                _startingCamera) {
+              return const SizedBox.shrink();
+            }
             return _buildCameraPlaceholder(
               icon: Icons.videocam_off,
               title: 'Camera Unavailable or Permission Denied',
-              subtitle:
-                  'Please grant camera permission in your browser settings, '
-                  'then reload this page — or enter the barcode manually below.',
+              subtitle: _friendlyCameraError(error),
+              action: TextButton.icon(
+                onPressed: _onAllowCameraTap,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Try again'),
+              ),
             );
           },
         ),
-        if (_cameraStarted && _cameraStartError == null)
+        if (_cameraStarted && _cameraStartError == null && !_needsAllowTap)
           Center(
             child: Container(
               width: 220,
@@ -241,20 +385,46 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
               ),
             ),
           ),
-        if (_cameraStartError != null)
+        if (_permissionHardDenied || _cameraStartError != null)
           _buildCameraPlaceholder(
             icon: Icons.videocam_off,
-            title: 'Camera Unavailable or Permission Denied',
-            subtitle: _cameraStartError!,
-            action: TextButton.icon(
-              onPressed: _startingCamera
-                  ? null
-                  : () {
-                      setState(() => _cameraStartError = null);
-                      unawaited(_ensureCameraStarted());
-                    },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry after enabling permission'),
+            title: _permissionHardDenied
+                ? 'Camera Permission Denied'
+                : 'Camera Unavailable',
+            subtitle: _cameraStartError ?? _deniedMessage(),
+            action: Column(
+              children: [
+                TextButton.icon(
+                  onPressed: _startingCamera ? null : _onAllowCameraTap,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry after enabling permission'),
+                ),
+                TextButton.icon(
+                  onPressed: _openCameraHelp,
+                  icon: const Icon(Icons.open_in_new, size: 18),
+                  label: const Text('How to change site settings'),
+                ),
+              ],
+            ),
+          )
+        else if (_needsAllowTap)
+          _buildCameraPlaceholder(
+            icon: Icons.photo_camera,
+            title: 'Allow camera',
+            subtitle:
+                'Your browser needs one tap to show the camera permission '
+                'prompt. After you allow it, FlipBin will remember and '
+                'auto-start next time.',
+            action: ElevatedButton.icon(
+              onPressed: _startingCamera ? null : _onAllowCameraTap,
+              icon: _startingCamera
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.videocam),
+              label: Text(_startingCamera ? 'Starting…' : 'Allow camera'),
             ),
           )
         else if (_startingCamera && !_cameraStarted)
