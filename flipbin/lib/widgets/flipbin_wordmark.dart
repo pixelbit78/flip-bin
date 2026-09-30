@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 class FlipBinWordmark extends StatelessWidget {
   const FlipBinWordmark({
     super.key,
-    this.fontSize = 24,
+    this.fontSize = 42,
     this.fontWeight = FontWeight.w700,
     this.letterSpacing = -0.2,
     this.flipColor = Colors.white,
