@@ -38,6 +38,20 @@ final monthlyExpensesProvider =
   return db.expensesDao.watchMonthlyTotals();
 });
 
+/// Last 6 calendar months of sold-item counts by `dateSold`, oldest first.
+final monthlySoldProvider =
+    StreamProvider<List<MonthlyInventoryCount>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.inventoryItemsDao.watchMonthlySoldCounts();
+});
+
+/// Last 6 calendar months of listed-item counts by `dateAdded`, oldest first.
+final monthlyListedProvider =
+    StreamProvider<List<MonthlyInventoryCount>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.inventoryItemsDao.watchMonthlyListedCounts();
+});
+
 /// Exact currency for the Home **Total cost** KPI (`$1,847.32`).
 ///
 /// Always shows dollars with grouping commas and two cent digits.

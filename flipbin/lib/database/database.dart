@@ -134,6 +134,14 @@ class MonthlyExpenseTotal {
   const MonthlyExpenseTotal({required this.month, required this.total});
 }
 
+/// One month's item count for the Home inventory activity charts.
+class MonthlyInventoryCount {
+  final DateTime month;
+  final int count;
+
+  const MonthlyInventoryCount({required this.month, required this.count});
+}
+
 @DriftAccessor(tables: [InventoryItems])
 class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$InventoryItemsDaoMixin {
   InventoryItemsDao(super.db);
@@ -346,6 +354,59 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
         windowDays: windowDays,
       );
     });
+  }
+
+  /// Item counts by `dateSold` for the last [monthCount] calendar months.
+  /// Oldest month first; items without a sale date are excluded.
+  Stream<List<MonthlyInventoryCount>> watchMonthlySoldCounts({
+    int monthCount = 6,
+    DateTime? anchor,
+  }) {
+    return select(inventoryItems).watch().map((items) {
+      return _monthlyInventoryCounts(
+        items.map((item) => item.dateSold).whereType<DateTime>(),
+        monthCount: monthCount,
+        anchor: anchor,
+      );
+    });
+  }
+
+  /// Item counts by `dateAdded` for the last [monthCount] calendar months.
+  /// Oldest month first.
+  Stream<List<MonthlyInventoryCount>> watchMonthlyListedCounts({
+    int monthCount = 6,
+    DateTime? anchor,
+  }) {
+    return select(inventoryItems).watch().map((items) {
+      return _monthlyInventoryCounts(
+        items.map((item) => item.dateAdded),
+        monthCount: monthCount,
+        anchor: anchor,
+      );
+    });
+  }
+
+  static List<MonthlyInventoryCount> _monthlyInventoryCounts(
+    Iterable<DateTime> dates, {
+    required int monthCount,
+    DateTime? anchor,
+  }) {
+    final now = anchor ?? DateTime.now();
+    final months = [
+      for (var i = monthCount - 1; i >= 0; i--)
+        DateTime(now.year, now.month - i, 1),
+    ];
+    return [
+      for (final monthStart in months)
+        MonthlyInventoryCount(
+          month: monthStart,
+          count: dates
+              .where((date) =>
+                  date.year == monthStart.year &&
+                  date.month == monthStart.month)
+              .length,
+        ),
+    ];
   }
 
   /// Top [limit] Sold items by fastest `daysToSell` (ascending). Requires `dateSold`.

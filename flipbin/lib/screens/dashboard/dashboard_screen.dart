@@ -30,6 +30,8 @@ class DashboardScreen extends ConsumerWidget {
     final bucketsAsync = ref.watch(agingBucketsProvider);
     final sellThroughAsync = ref.watch(sellThroughProvider);
     final monthsAsync = ref.watch(monthlyExpensesProvider);
+    final soldMonthsAsync = ref.watch(monthlySoldProvider);
+    final listedMonthsAsync = ref.watch(monthlyListedProvider);
 
     return Scaffold(
       backgroundColor: _bg,
@@ -65,6 +67,23 @@ class DashboardScreen extends ConsumerWidget {
             _SellThroughCard(metrics: sellThroughAsync.valueOrNull),
             const SizedBox(height: 12),
             _MonthlyExpensesCard(months: monthsAsync.valueOrNull),
+            const SizedBox(height: 12),
+            _MonthlyInventoryCard(
+              title: 'Monthly sold',
+              subtitle:
+                  'Item counts by dateSold — not sale \$ (no sale price yet)',
+              color: DashboardScreen._green,
+              currentColor: const Color(0xFF81C784),
+              months: soldMonthsAsync.valueOrNull,
+            ),
+            const SizedBox(height: 12),
+            _MonthlyInventoryCard(
+              title: 'Monthly listed',
+              subtitle: 'Items added/listed by dateAdded',
+              color: const Color(0xFF00897B),
+              currentColor: const Color(0xFF4DB6AC),
+              months: listedMonthsAsync.valueOrNull,
+            ),
           ],
         ),
       ),
@@ -274,11 +293,13 @@ class _DashCard extends StatelessWidget {
     required this.title,
     required this.badge,
     required this.child,
+    this.subtitle,
   });
 
   final String title;
   final String badge;
   final Widget child;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -320,7 +341,18 @@ class _DashCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          if (subtitle != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle!,
+              style: const TextStyle(
+                fontSize: 12,
+                color: DashboardScreen._muted,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ] else
+            const SizedBox(height: 14),
           child,
         ],
       ),
@@ -638,9 +670,8 @@ class _MonthlyExpensesCard extends StatelessWidget {
               total: 0,
             ),
         ];
-    final yearLabel = data.isNotEmpty
-        ? '${data.last.month.year}'
-        : '${now.year}';
+    final yearLabel =
+        data.isNotEmpty ? '${data.last.month.year}' : '${now.year}';
 
     return _DashCard(
       title: 'Monthly expenses',
@@ -710,8 +741,7 @@ class _MonthlyBarsPainter extends CustomPainter {
 
     for (var i = 0; i < n; i++) {
       final m = months[i];
-      final isCurrent =
-          m.month.year == now.year && m.month.month == now.month;
+      final isCurrent = m.month.year == now.year && m.month.month == now.month;
       final h = yMax <= 0 ? 0.0 : (m.total / yMax) * chartH;
       final cx = leftGutter + slot * i + slot / 2;
       final left = cx - barW / 2;
@@ -787,4 +817,185 @@ class _MonthlyBarsPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _MonthlyBarsPainter oldDelegate) =>
       oldDelegate.months != months || oldDelegate.now != now;
+}
+
+// ─── Monthly sold/listed ────────────────────────────────────────────────────
+
+class _MonthlyInventoryCard extends StatelessWidget {
+  const _MonthlyInventoryCard({
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.currentColor,
+    required this.months,
+  });
+
+  final String title;
+  final String subtitle;
+  final Color color;
+  final Color currentColor;
+  final List<MonthlyInventoryCount>? months;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final data = months ??
+        [
+          for (var i = 5; i >= 0; i--)
+            MonthlyInventoryCount(
+              month: DateTime(now.year, now.month - i, 1),
+              count: 0,
+            ),
+        ];
+    final yearLabel =
+        data.isNotEmpty ? '${data.last.month.year}' : '${now.year}';
+
+    return _DashCard(
+      title: title,
+      badge: 'Counts · $yearLabel',
+      subtitle: subtitle,
+      child: SizedBox(
+        height: 150,
+        child: CustomPaint(
+          painter: _MonthlyInventoryBarsPainter(
+            months: data,
+            now: now,
+            color: color,
+            currentColor: currentColor,
+          ),
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+  }
+}
+
+class _MonthlyInventoryBarsPainter extends CustomPainter {
+  _MonthlyInventoryBarsPainter({
+    required this.months,
+    required this.now,
+    required this.color,
+    required this.currentColor,
+  });
+
+  final List<MonthlyInventoryCount> months;
+  final DateTime now;
+  final Color color;
+  final Color currentColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (months.isEmpty) return;
+
+    const leftGutter = 36.0;
+    const bottomGutter = 28.0;
+    const topPad = 16.0;
+    final chartW = size.width - leftGutter;
+    final chartH = size.height - bottomGutter - topPad;
+    final maxVal = months.map((m) => m.count).fold<int>(0, math.max);
+    final yMax = maxVal <= 0 ? 1 : _niceMax(maxVal);
+
+    final gridPaint = Paint()
+      ..color = const Color(0x0FFFFFFF)
+      ..strokeWidth = 1;
+    final baselinePaint = Paint()
+      ..color = const Color(0x14FFFFFF)
+      ..strokeWidth = 1;
+
+    for (final t in [0.0, 0.5, 1.0]) {
+      final y = topPad + chartH * (1 - t);
+      canvas.drawLine(
+        Offset(leftGutter, y),
+        Offset(size.width, y),
+        t == 0 ? baselinePaint : gridPaint,
+      );
+      final tp = TextPainter(
+        text: TextSpan(
+          text: '${(yMax * t).round()}',
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0x80FFFFFF),
+          ),
+        ),
+        textDirection: ui.TextDirection.ltr,
+      )..layout(maxWidth: leftGutter - 6);
+      tp.paint(canvas, Offset(leftGutter - 6 - tp.width, y - tp.height / 2));
+    }
+
+    final n = months.length;
+    final slot = chartW / n;
+    final barW = math.min(32.0, slot * 0.55);
+    final monthFmt = DateFormat('MMM');
+
+    for (var i = 0; i < n; i++) {
+      final month = months[i];
+      final isCurrent =
+          month.month.year == now.year && month.month.month == now.month;
+      final h = (month.count / yMax) * chartH;
+      final cx = leftGutter + slot * i + slot / 2;
+      final left = cx - barW / 2;
+      final top = topPad + chartH - h;
+      final rect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(left, top, barW, math.max(h, 0)),
+        const Radius.circular(5),
+      );
+      canvas.drawRRect(
+        rect,
+        Paint()
+          ..color = isCurrent ? currentColor : color.withValues(alpha: 0.85),
+      );
+
+      final ltp = TextPainter(
+        text: TextSpan(
+          text: monthFmt.format(month.month),
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0x8CFFFFFF),
+          ),
+        ),
+        textDirection: ui.TextDirection.ltr,
+      )..layout();
+      ltp.paint(
+        canvas,
+        Offset(cx - ltp.width / 2, size.height - bottomGutter + 6),
+      );
+
+      if (isCurrent && month.count > 0) {
+        final vtp = TextPainter(
+          text: TextSpan(
+            text: '${month.count}',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: currentColor,
+            ),
+          ),
+          textDirection: ui.TextDirection.ltr,
+        )..layout();
+        vtp.paint(canvas, Offset(cx - vtp.width / 2, top - vtp.height - 2));
+      }
+    }
+  }
+
+  static int _niceMax(int value) {
+    if (value <= 1) return 1;
+    final exp = (math.log(value) / math.ln10).floor();
+    final base = math.pow(10, exp).toInt();
+    final n = (value / base).ceil();
+    final step = n <= 1
+        ? 1
+        : n <= 2
+            ? 2
+            : n <= 5
+                ? 5
+                : 10;
+    return step * base;
+  }
+
+  @override
+  bool shouldRepaint(covariant _MonthlyInventoryBarsPainter oldDelegate) =>
+      oldDelegate.months != months ||
+      oldDelegate.now != now ||
+      oldDelegate.color != color ||
+      oldDelegate.currentColor != currentColor;
 }

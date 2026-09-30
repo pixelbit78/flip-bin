@@ -14,6 +14,8 @@ void main() {
     AgingBuckets? buckets,
     SellThroughMetrics? sellThrough,
     List<MonthlyExpenseTotal>? months,
+    List<MonthlyInventoryCount>? soldMonths,
+    List<MonthlyInventoryCount>? listedMonths,
   }) {
     final now = DateTime.now();
     buckets ??= const AgingBuckets(
@@ -47,6 +49,20 @@ void main() {
           total: i == 0 ? 87 : 50.0 + i * 10,
         ),
     ];
+    soldMonths ??= [
+      for (var i = 5; i >= 0; i--)
+        MonthlyInventoryCount(
+          month: DateTime(now.year, now.month - i, 1),
+          count: i == 0 ? 39 : 20 + i,
+        ),
+    ];
+    listedMonths ??= [
+      for (var i = 5; i >= 0; i--)
+        MonthlyInventoryCount(
+          month: DateTime(now.year, now.month - i, 1),
+          count: i == 0 ? 50 : 30 + i,
+        ),
+    ];
 
     return [
       activeTotalCostTimesQtyProvider
@@ -55,6 +71,8 @@ void main() {
       agingBucketsProvider.overrideWith((ref) => Stream.value(buckets!)),
       sellThroughProvider.overrideWith((ref) => Stream.value(sellThrough!)),
       monthlyExpensesProvider.overrideWith((ref) => Stream.value(months!)),
+      monthlySoldProvider.overrideWith((ref) => Stream.value(soldMonths!)),
+      monthlyListedProvider.overrideWith((ref) => Stream.value(listedMonths!)),
     ];
   }
 
@@ -94,6 +112,8 @@ void main() {
     expect(find.text('Still active'), findsOneWidget);
 
     expect(find.text('Monthly expenses'), findsOneWidget);
+    expect(find.text('Monthly sold'), findsOneWidget);
+    expect(find.text('Monthly listed'), findsOneWidget);
     expect(find.text('Top movers'), findsNothing);
     expect(find.text('Fastest sold'), findsNothing);
     expect(find.text('Avg days to sell'), findsNothing);
