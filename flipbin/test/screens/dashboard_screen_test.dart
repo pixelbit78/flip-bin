@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flipbin/database/database.dart';
 import 'package:flipbin/providers/dashboard_provider.dart';
 import 'package:flipbin/screens/dashboard/dashboard_screen.dart';
+import 'package:flipbin/widgets/flipbin_wordmark.dart';
 
 void main() {
   List<Override> dashboardOverrides({
@@ -67,6 +68,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.byType(FlipBinWordmark), findsOneWidget);
     expect(find.text('FlipBin'), findsOneWidget);
     expect(find.text('\$1,600.00'), findsOneWidget);
     expect(find.text('Active · cost × qty'), findsOneWidget);

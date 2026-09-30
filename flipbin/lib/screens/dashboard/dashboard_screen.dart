@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:flipbin/database/database.dart';
 import 'package:flipbin/providers/dashboard_provider.dart';
+import 'package:flipbin/widgets/flipbin_wordmark.dart';
 
 /// Home dashboard — Option C v2 matching the approved mockup.
 ///
@@ -36,14 +37,7 @@ class DashboardScreen extends ConsumerWidget {
         backgroundColor: _bg,
         elevation: 0,
         centerTitle: false,
-        title: const Text(
-          'FlipBin',
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 24,
-            letterSpacing: -0.2,
-          ),
-        ),
+        title: const FlipBinWordmark(),
         actions: [
           IconButton(
             tooltip: 'Settings',
