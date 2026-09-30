@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/database_provider.dart';
@@ -37,7 +38,17 @@ final monthlyExpensesProvider =
   return db.expensesDao.watchMonthlyTotals();
 });
 
-/// Compact currency for dashboard KPIs (`$840`, `$1.6k`).
+/// Exact currency for the Home **Total cost** KPI (`$1,847.32`).
+///
+/// Always shows dollars with grouping commas and two cent digits.
+String formatDashboardTotalCost(double value) {
+  return NumberFormat.currency(symbol: '\$', decimalDigits: 2).format(value);
+}
+
+/// Compact currency for non-KPI dashboard money (`$840`, `$1.6k`).
+///
+/// Used by aging capital row amounts and monthly expense bar labels —
+/// not the Total cost KPI.
 String formatDashboardMoney(double value) {
   final abs = value.abs();
   if (abs >= 1000) {

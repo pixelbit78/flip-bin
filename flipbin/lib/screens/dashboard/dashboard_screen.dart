@@ -58,7 +58,7 @@ class DashboardScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _KpiRow(
-              totalCostLabel: formatDashboardMoney(
+              totalCostLabel: formatDashboardTotalCost(
                 totalCostAsync.valueOrNull ?? 0,
               ),
               activeCountLabel: '${activeCountAsync.valueOrNull ?? 0}',
@@ -152,13 +152,18 @@ class _KpiCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              height: 1.1,
-              color: valueColor,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w700,
+                height: 1.1,
+                color: valueColor,
+              ),
             ),
           ),
           const SizedBox(height: 4),

@@ -68,7 +68,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('FlipBin'), findsOneWidget);
-    expect(find.text('\$1.6k'), findsOneWidget);
+    expect(find.text('\$1,600.00'), findsOneWidget);
     expect(find.text('Active · cost × qty'), findsOneWidget);
     expect(find.text('54'), findsWidgets); // KPI + still active
     expect(find.text('items in stock'), findsOneWidget);
@@ -214,5 +214,12 @@ void main() {
     expect(formatDashboardMoney(1600), '\$1.6k');
     expect(formatDashboardMoney(1000), '\$1k');
     expect(formatDashboardMoney(87), '\$87');
+  });
+
+  test('formatDashboardTotalCost exact dollars with commas and cents', () {
+    expect(formatDashboardTotalCost(1847.32), '\$1,847.32');
+    expect(formatDashboardTotalCost(1600), '\$1,600.00');
+    expect(formatDashboardTotalCost(87), '\$87.00');
+    expect(formatDashboardTotalCost(0), '\$0.00');
   });
 }
