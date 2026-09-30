@@ -271,6 +271,80 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     }
   }
 
+  /// Mark sold control: Active/Personal → sold + dateSold=now (form state; Save persists).
+  void _markSold() {
+    if (_status == ItemStatus.sold) return;
+    setState(() {
+      _status = ItemStatus.sold;
+      _dateSold ??= DateTime.now();
+    });
+  }
+
+  /// Overlay the price-tag in the live cover↔Description gap without adding
+  /// vertical space. The larger Stack bounds keep the overflowed button hit-testable.
+  Widget _buildMarkSoldGap() {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Column(
+          children: [
+            _buildCoverSection(),
+            const SizedBox(height: 16), // match live cover↔Description spacing
+          ],
+        ),
+        Positioned(
+          right: 0,
+          bottom: 6, // nestle into natural gap, above Description
+          child: _buildMarkSoldButton(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMarkSoldButton() {
+    final alreadySold = _status == ItemStatus.sold;
+    // Active (and Personal): orange tappable. Sold: muted no-op.
+    const activeBorder = Color(0xFFFF9800);
+    const activeFg = Color(0xFFFFB74D);
+    final border =
+        alreadySold ? Colors.white.withValues(alpha: 0.14) : activeBorder;
+    final bg = alreadySold
+        ? Colors.white.withValues(alpha: 0.06)
+        : activeBorder.withValues(alpha: 0.14);
+    final fg = alreadySold ? Colors.white38 : activeFg;
+
+    return Tooltip(
+      message: alreadySold ? 'Sold' : 'Mark sold',
+      child: Semantics(
+        button: !alreadySold,
+        label: alreadySold ? 'Sold' : 'Mark sold',
+        enabled: !alreadySold,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            key: const Key('markSoldButton'),
+            onTap: alreadySold ? null : _markSold,
+            borderRadius: BorderRadius.circular(10),
+            child: Ink(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: border, width: 1.5),
+              ),
+              child: Icon(
+                Icons.local_offer,
+                size: 22,
+                color: fg,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCoverSection() {
     final displayUrl = proxiedImageUrl(_imageUrl);
     return Column(
@@ -371,8 +445,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildCoverSection(),
-                  const SizedBox(height: 16),
+                  _buildMarkSoldGap(),
                   TextFormField(
                     controller: _descController,
                     decoration:
