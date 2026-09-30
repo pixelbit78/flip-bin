@@ -13,6 +13,7 @@ class GoogleSessionStore {
   static const _kSpreadsheetId = 'flipbin.google.spreadsheetId';
   static const _kLastSyncedMs = 'flipbin.google.lastSyncedMs';
   static const _kLastImportedMs = 'flipbin.google.lastImportedMs';
+  static const _kAutoBackupEnabled = 'flipbin.autoBackup.enabled';
 
   Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
 
@@ -61,6 +62,17 @@ class GoogleSessionStore {
     } else {
       await prefs.setInt(_kLastImportedMs, at.millisecondsSinceEpoch);
     }
+  }
+
+
+  Future<bool> loadAutoBackupEnabled() async {
+    final prefs = await _prefs;
+    return prefs.getBool(_kAutoBackupEnabled) ?? false;
+  }
+
+  Future<void> saveAutoBackupEnabled(bool enabled) async {
+    final prefs = await _prefs;
+    await prefs.setBool(_kAutoBackupEnabled, enabled);
   }
 
   Future<GooglePersistedSession?> load() async {

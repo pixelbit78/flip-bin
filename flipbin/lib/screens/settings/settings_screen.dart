@@ -21,6 +21,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void initState() {
     super.initState();
     _clientIdController = TextEditingController(text: GoogleSheetsService.defaultClientId);
+    // PWA: check daily auto-backup when Settings opens.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(syncProvider.notifier).maybeRunAutoBackup();
+    });
   }
 
   @override
@@ -346,7 +351,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Automatic daily backup'),
+                      subtitle: const Text(
+                        'When On, FlipBin exports to Google Sheets if the last successful export was 24+ hours ago. Runs on app open, when you return to the app, or when Settings loads (web PWA has no reliable background job).',
+                        style: TextStyle(fontSize: 12, color: Colors.white54),
+                      ),
+                      value: syncState.autoBackupEnabled,
+                      onChanged: syncState.isSignedIn
+                          ? (value) => syncNotifier.setAutoBackupEnabled(value)
+                          : null,
+                    ),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
                         Expanded(

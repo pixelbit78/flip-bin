@@ -14,6 +14,7 @@ import 'package:flipbin/screens/settings/settings_screen.dart';
 import 'package:flipbin/services/barcode_lookup_service.dart';
 import 'package:flipbin/providers/expense_provider.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
+import 'package:flipbin/providers/sync_provider.dart';
 
 /// FlipBin router configuration with bottom navigation shell.
 class FlipBinRouter {
@@ -88,10 +89,37 @@ class FlipBinRouter {
 ///
 /// Summary providers are Drift [StreamProvider]s and stay live; tab taps also
 /// invalidate them as a thin backup (including re-tapping the current tab).
-class ScaffoldWithNavBar extends ConsumerWidget {
+///
+/// Also observes app resume so daily auto Sheets backup can run on PWA return.
+class ScaffoldWithNavBar extends ConsumerStatefulWidget {
   const ScaffoldWithNavBar({super.key, required this.child});
 
   final Widget child;
+
+  @override
+  ConsumerState<ScaffoldWithNavBar> createState() => _ScaffoldWithNavBarState();
+}
+
+class _ScaffoldWithNavBarState extends ConsumerState<ScaffoldWithNavBar>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(syncProvider.notifier).maybeRunAutoBackup();
+    }
+  }
 
   static int _calculateSelectedIndex(BuildContext context) {
     final location = GoRouterState.of(context).uri.toString();
@@ -130,9 +158,9 @@ class ScaffoldWithNavBar extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return Scaffold(
-      body: child,
+      body: widget.child,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _calculateSelectedIndex(context),
         onTap: (index) => _onItemTapped(index, context, ref),

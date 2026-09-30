@@ -5,6 +5,9 @@ import 'package:flipbin/providers/expense_provider.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/services/google_sheets_service.dart';
 
+/// Minimum age of the last successful export before an automatic backup runs.
+const Duration kAutoBackupInterval = Duration(hours: 24);
+
 /// State of Google Sheets synchronization.
 class SyncState {
   final GoogleSignInAccount? account;
@@ -18,6 +21,7 @@ class SyncState {
   final String? error;
   final String? clientId;
   final String? spreadsheetId;
+  final bool autoBackupEnabled;
 
   const SyncState({
     this.account,
@@ -31,6 +35,7 @@ class SyncState {
     this.error,
     this.clientId,
     this.spreadsheetId,
+    this.autoBackupEnabled = false,
   });
 
   bool get isSignedIn =>
@@ -54,6 +59,7 @@ class SyncState {
     String? error,
     String? clientId,
     String? spreadsheetId,
+    bool? autoBackupEnabled,
     bool clearError = false,
     bool clearAccount = false,
     bool clearRestored = false,
@@ -75,6 +81,7 @@ class SyncState {
       clientId: clientId ?? this.clientId,
       spreadsheetId:
           clearSpreadsheetId ? null : (spreadsheetId ?? this.spreadsheetId),
+      autoBackupEnabled: autoBackupEnabled ?? this.autoBackupEnabled,
     );
   }
 }
@@ -99,9 +106,37 @@ class SyncNotifier extends StateNotifier<SyncState> {
     state = state.copyWith(clientId: clientId, clearError: true);
   }
 
+  Future<void> setAutoBackupEnabled(bool enabled) async {
+    await _sheetsService.sessionStore.saveAutoBackupEnabled(enabled);
+    state = state.copyWith(autoBackupEnabled: enabled);
+    if (enabled) {
+      await maybeRunAutoBackup();
+    }
+  }
+
+  /// Runs Sheets export when auto-backup is on, the user is signed in, and the
+  /// last successful export (manual or auto) is at least [kAutoBackupInterval]
+  /// old. Skips quietly when signed out, disabled, already fresh, or a sync is
+  /// already in progress. Intended for app start / Settings / resume (PWA).
+  Future<void> maybeRunAutoBackup({DateTime? now}) async {
+    if (!state.autoBackupEnabled) return;
+    if (!state.isSignedIn) return;
+    if (state.isSyncing || state.isImporting || state.isRestoring) return;
+
+    final clock = now ?? DateTime.now();
+    final last = state.lastSyncedAt;
+    if (last != null && clock.difference(last) < kAutoBackupInterval) {
+      return;
+    }
+
+    await sync();
+  }
+
   Future<void> restoreSession() async {
     state = state.copyWith(isRestoring: true, clearError: true);
     try {
+      final autoBackup =
+          await _sheetsService.sessionStore.loadAutoBackupEnabled();
       final persisted = await _sheetsService.sessionStore.load();
       if (persisted != null) {
         state = state.copyWith(
@@ -110,7 +145,10 @@ class SyncNotifier extends StateNotifier<SyncState> {
           spreadsheetId: persisted.spreadsheetId,
           lastSyncedAt: persisted.lastSyncedAt,
           lastImportedAt: persisted.lastImportedAt,
+          autoBackupEnabled: autoBackup,
         );
+      } else {
+        state = state.copyWith(autoBackupEnabled: autoBackup);
       }
 
       final account = await _sheetsService.signInSilently();
@@ -125,6 +163,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
       } else {
         state = state.copyWith(isRestoring: false);
       }
+
+      // Cold-start auto-backup check (web PWA has no reliable OS job).
+      await maybeRunAutoBackup();
     } catch (e) {
       state = state.copyWith(
         isRestoring: false,
@@ -142,6 +183,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
         restoredDisplayName: account?.displayName,
         clearError: true,
       );
+      await maybeRunAutoBackup();
     } catch (e) {
       state = state.copyWith(
         error:
@@ -162,7 +204,8 @@ class SyncNotifier extends StateNotifier<SyncState> {
   Future<void> signOut() async {
     try {
       await _sheetsService.signOut();
-      state = const SyncState();
+      final autoBackup = state.autoBackupEnabled;
+      state = SyncState(autoBackupEnabled: autoBackup);
     } catch (e) {
       state = state.copyWith(error: 'Sign out failed: $e');
     }
