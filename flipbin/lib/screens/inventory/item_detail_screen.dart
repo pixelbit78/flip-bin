@@ -8,6 +8,7 @@ import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/services/barcode_lookup_service.dart';
 import 'package:flipbin/utils/cost_field.dart';
+import 'package:flipbin/utils/default_cover.dart';
 import 'package:flipbin/utils/proxied_image_url.dart';
 
 /// Screen for adding or editing an inventory item.
@@ -346,23 +347,18 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   }
 
   Widget _buildCoverSection() {
-    final displayUrl = proxiedImageUrl(_imageUrl);
+    final hasUrl = (_imageUrl ?? '').trim().isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Center(
-          child: displayUrl != null
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    displayUrl,
-                    height: 160,
-                    fit: BoxFit.cover,
-                    webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
-                    errorBuilder: (_, __, ___) => _coverPlaceholder(),
-                  ),
-                )
-              : _coverPlaceholder(),
+          child: ItemCoverImage(
+            imageUrl: _imageUrl,
+            type: _type,
+            width: 120,
+            height: 160,
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
         const SizedBox(height: 8),
         Row(
@@ -370,11 +366,10 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
           children: [
             TextButton.icon(
               onPressed: _editCoverUrl,
-              icon: Icon(
-                  displayUrl != null ? Icons.edit : Icons.add_photo_alternate),
-              label: Text(displayUrl != null ? 'Change cover' : 'Add cover'),
+              icon: Icon(hasUrl ? Icons.edit : Icons.add_photo_alternate),
+              label: Text(hasUrl ? 'Change cover' : 'Add cover'),
             ),
-            if (displayUrl != null)
+            if (hasUrl)
               TextButton(
                 onPressed: () => setState(() => _imageUrl = null),
                 child: const Text('Remove'),
@@ -382,29 +377,6 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
           ],
         ),
       ],
-    );
-  }
-
-  Widget _coverPlaceholder() {
-    return Container(
-      height: 120,
-      width: 120,
-      decoration: BoxDecoration(
-        color: Colors.white10,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: const Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.image_outlined, size: 40, color: Colors.white38),
-          SizedBox(height: 4),
-          Text(
-            'No cover',
-            style: TextStyle(color: Colors.white38, fontSize: 12),
-          ),
-        ],
-      ),
     );
   }
 

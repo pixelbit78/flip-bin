@@ -6,6 +6,7 @@ enum ItemType {
   game,
   dvd,
   bluray,
+  vhs,
   cd,
   book,
   other;
@@ -18,6 +19,8 @@ enum ItemType {
         return 'DVD';
       case ItemType.bluray:
         return 'Blu-ray';
+      case ItemType.vhs:
+        return 'VHS';
       case ItemType.cd:
         return 'CD';
       case ItemType.book:
@@ -30,6 +33,13 @@ enum ItemType {
   static ItemType fromLabel(String? label) {
     if (label == null || label.trim().isEmpty) return ItemType.other;
     final lower = label.trim().toLowerCase();
+    // Common aliases that are not the enum name/label exactly.
+    if (lower == 'blu ray' || lower == 'blu-ray' || lower == 'bluray') {
+      return ItemType.bluray;
+    }
+    if (lower == 'vhs tape' || lower == 'videotape') {
+      return ItemType.vhs;
+    }
     for (final val in ItemType.values) {
       if (val.label.toLowerCase() == lower || val.name.toLowerCase() == lower) {
         return val;
@@ -48,6 +58,13 @@ enum ItemType {
         lower.contains('bluray') ||
         lower.contains('blu ray')) {
       return ItemType.bluray;
+    }
+    // VHS before generic "dvd" / "video" so tapes are not misclassified.
+    if (lower.contains('vhs') ||
+        lower.contains('videocassette') ||
+        lower.contains('video cassette') ||
+        lower.contains('videotape')) {
+      return ItemType.vhs;
     }
     if (lower.contains('dvd') || lower.contains('video > movies')) {
       return ItemType.dvd;

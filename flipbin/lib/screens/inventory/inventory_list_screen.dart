@@ -5,7 +5,7 @@ import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/widgets/status_badge.dart';
 import 'package:flipbin/widgets/type_badge.dart';
-import 'package:flipbin/utils/proxied_image_url.dart';
+import 'package:flipbin/utils/default_cover.dart';
 
 /// Screen displaying searchable and filterable list of inventory items.
 class InventoryListScreen extends ConsumerStatefulWidget {
@@ -168,28 +168,11 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
                           padding: const EdgeInsets.all(12.0),
                           child: Row(
                             children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Container(
-                                  width: 60,
-                                  height: 60,
-                                  color: Colors.white10,
-                                  child: proxiedImageUrl(item.imageUrl) != null
-                                      ? Image.network(
-                                          proxiedImageUrl(item.imageUrl)!,
-                                          fit: BoxFit.cover,
-                                          webHtmlElementStrategy:
-                                              WebHtmlElementStrategy.prefer,
-                                          errorBuilder: (_, __, ___) => const Icon(
-                                            Icons.inventory_2,
-                                            color: Colors.white38,
-                                          ),
-                                        )
-                                      : const Icon(
-                                          Icons.inventory_2,
-                                          color: Colors.white38,
-                                        ),
-                                ),
+                              ItemCoverImage(
+                                imageUrl: item.imageUrl,
+                                type: item.type,
+                                width: 60,
+                                height: 60,
                               ),
                               const SizedBox(width: 12),
                               Expanded(
