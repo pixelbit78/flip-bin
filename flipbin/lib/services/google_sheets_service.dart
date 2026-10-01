@@ -330,6 +330,73 @@ class GoogleSheetsService {
     return null;
   }
 
+  /// Returns true when a live or still-valid cached access token is available
+  /// for Sheets/Drive calls. Attempts silent GIS refresh first.
+  ///
+  /// Does not open an interactive sign-in popup — callers prompt via [signIn].
+  Future<bool> ensureUsableCredential() async {
+    // Demo short-circuit.
+    if (currentUser is DemoGoogleSignInAccount) {
+      return true;
+    }
+
+    // Prefer a live account + fresh access token.
+    GoogleSignInAccount? user = currentUser;
+    if (user == null) {
+      try {
+        user = await _googleSignIn.signInSilently();
+      } catch (_) {
+        user = null;
+      }
+    }
+
+    if (user != null) {
+      await _persistAccount(user);
+      final live = await _tryReadLiveAccessToken(user);
+      if (live != null) {
+        _restoredAccessToken = live;
+        await _sessionStore.saveAccessToken(live);
+        return true;
+      }
+      // Account present but no token — try clearing auth cache then re-read.
+      try {
+        await user.clearAuthCache();
+        final retry = await _tryReadLiveAccessToken(user);
+        if (retry != null) {
+          _restoredAccessToken = retry;
+          await _sessionStore.saveAccessToken(retry);
+          return true;
+        }
+      } catch (_) {}
+    }
+
+    // Non-expired cached bearer from a prior session (within ~55 min).
+    final persisted = await _sessionStore.load();
+    if (persisted?.accessToken != null &&
+        persisted!.accessToken!.isNotEmpty) {
+      _restoredAccessToken = persisted.accessToken;
+      return true;
+    }
+
+    _restoredAccessToken = null;
+    return false;
+  }
+
+  /// Drops in-memory and persisted access tokens after a 401/auth failure so
+  /// the next export waits for a fresh sign-in instead of retrying a dead bearer.
+  Future<void> invalidateStaleCredential() async {
+    _restoredAccessToken = null;
+    try {
+      await _sessionStore.clearAccessTokenOnly();
+    } catch (_) {}
+    final user = currentUser;
+    if (user != null) {
+      try {
+        await user.clearAuthCache();
+      } catch (_) {}
+    }
+  }
+
   Future<void> signOut() async {
     _restoredAccessToken = null;
     await _sessionStore.clearAll();

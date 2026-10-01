@@ -90,7 +90,8 @@ class FlipBinRouter {
 /// Summary providers are Drift [StreamProvider]s and stay live; tab taps also
 /// invalidate them as a thin backup (including re-tapping the current tab).
 ///
-/// Also observes app resume so daily auto Sheets backup can run on PWA return.
+/// Also observes app resume so daily auto Sheets backup can run on PWA return
+/// (Settings must not be the primary auto-backup trigger).
 class ScaffoldWithNavBar extends ConsumerStatefulWidget {
   const ScaffoldWithNavBar({super.key, required this.child});
 

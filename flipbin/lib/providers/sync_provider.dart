@@ -22,6 +22,11 @@ class SyncState {
   final String? clientId;
   final String? spreadsheetId;
   final bool autoBackupEnabled;
+  /// True when Google auth is stale and the user must sign in again before
+  /// export/import or silent auto-backup can run.
+  final bool needsReauth;
+  /// Calm, non-scary notice (e.g. re-auth hint). Shown separately from [error].
+  final String? authNotice;
 
   const SyncState({
     this.account,
@@ -36,6 +41,8 @@ class SyncState {
     this.clientId,
     this.spreadsheetId,
     this.autoBackupEnabled = false,
+    this.needsReauth = false,
+    this.authNotice,
   });
 
   bool get isSignedIn =>
@@ -60,10 +67,13 @@ class SyncState {
     String? clientId,
     String? spreadsheetId,
     bool? autoBackupEnabled,
+    bool? needsReauth,
+    String? authNotice,
     bool clearError = false,
     bool clearAccount = false,
     bool clearRestored = false,
     bool clearSpreadsheetId = false,
+    bool clearAuthNotice = false,
   }) {
     return SyncState(
       account: clearAccount ? null : (account ?? this.account),
@@ -82,8 +92,22 @@ class SyncState {
       spreadsheetId:
           clearSpreadsheetId ? null : (spreadsheetId ?? this.spreadsheetId),
       autoBackupEnabled: autoBackupEnabled ?? this.autoBackupEnabled,
+      needsReauth: needsReauth ?? this.needsReauth,
+      authNotice: clearAuthNotice ? null : (authNotice ?? this.authNotice),
     );
   }
+}
+
+/// Returns true when [error] looks like an expired/invalid Google OAuth session.
+bool isGoogleAuthFailure(Object error) {
+  final s = error.toString().toLowerCase();
+  return s.contains('http 401') ||
+      s.contains('(401)') ||
+      (s.contains('401') && s.contains('permission denied')) ||
+      s.contains('sign out and sign in') ||
+      s.contains('sign in again') ||
+      s.contains('could not authenticate') ||
+      s.contains('please sign in with google');
 }
 
 /// Provider for [GoogleSheetsService].
@@ -114,10 +138,13 @@ class SyncNotifier extends StateNotifier<SyncState> {
     }
   }
 
-  /// Runs Sheets export when auto-backup is on, the user is signed in, and the
-  /// last successful export (manual or auto) is at least [kAutoBackupInterval]
-  /// old. Skips quietly when signed out, disabled, already fresh, or a sync is
-  /// already in progress. Intended for app start / Settings / resume (PWA).
+  /// Runs Sheets export when auto-backup is on, Google auth is confirmed valid,
+  /// and the last successful export is at least [kAutoBackupInterval] old.
+  ///
+  /// Skips quietly when signed out, disabled, already fresh, busy, or auth is
+  /// not ready. On stale auth, sets [SyncState.needsReauth] with a calm notice
+  /// — never surfaces a red Drive 401 export banner from this silent path.
+  /// Intended for app start / resume (PWA); Settings must not be the trigger.
   Future<void> maybeRunAutoBackup({DateTime? now}) async {
     if (!state.autoBackupEnabled) return;
     if (!state.isSignedIn) return;
@@ -129,7 +156,58 @@ class SyncNotifier extends StateNotifier<SyncState> {
       return;
     }
 
-    await sync();
+    final ready = await _ensureAuthReady();
+    if (!ready) {
+      _markNeedsReauth(
+        notice:
+            'Sign in again to keep backups running. Your Google session expired.',
+      );
+      return;
+    }
+
+    await sync(fromAutoBackup: true);
+  }
+
+  /// Validates / silently refreshes Google credentials before any Drive call.
+  /// Returns false when the session is stale so callers can prompt re-auth
+  /// without opening a popup from this method.
+  Future<bool> _ensureAuthReady() async {
+    try {
+      final ok = await _sheetsService.ensureUsableCredential();
+      if (ok) {
+        // Live account may have been refreshed silently.
+        final user = _sheetsService.currentUser;
+        if (user != null) {
+          state = state.copyWith(
+            account: user,
+            restoredEmail: user.email,
+            restoredDisplayName: user.displayName,
+            needsReauth: false,
+            clearAuthNotice: true,
+            clearError: true,
+          );
+        } else {
+          state = state.copyWith(
+            needsReauth: false,
+            clearAuthNotice: true,
+          );
+        }
+        return true;
+      }
+    } catch (_) {
+      // Treat as not ready.
+    }
+    return false;
+  }
+
+  void _markNeedsReauth({required String notice}) {
+    state = state.copyWith(
+      needsReauth: true,
+      authNotice: notice,
+      isSyncing: false,
+      clearError: true,
+      clearAccount: state.account != null,
+    );
   }
 
   Future<void> restoreSession() async {
@@ -181,7 +259,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
         account: account,
         restoredEmail: account?.email,
         restoredDisplayName: account?.displayName,
+        needsReauth: false,
         clearError: true,
+        clearAuthNotice: true,
       );
       await maybeRunAutoBackup();
     } catch (e) {
@@ -212,17 +292,39 @@ class SyncNotifier extends StateNotifier<SyncState> {
   }
 
   Future<void> export() async {
-    await sync();
+    await sync(fromAutoBackup: false);
   }
 
-  Future<void> sync() async {
+  Future<void> sync({bool fromAutoBackup = false}) async {
     if (state.isSyncing || state.isImporting) return;
     if (!state.isSignedIn) {
+      if (fromAutoBackup) {
+        return;
+      }
       state = state.copyWith(error: 'Please sign in with Google first.');
       return;
     }
 
-    state = state.copyWith(isSyncing: true, clearError: true);
+    final ready = await _ensureAuthReady();
+    if (!ready) {
+      if (fromAutoBackup) {
+        _markNeedsReauth(
+          notice:
+              'Sign in again to keep backups running. Your Google session expired.',
+        );
+      } else {
+        state = state.copyWith(
+          needsReauth: true,
+          authNotice:
+              'Sign in again to export. Your Google session expired.',
+          clearError: true,
+          clearAccount: state.account != null,
+        );
+      }
+      return;
+    }
+
+    state = state.copyWith(isSyncing: true, clearError: true, clearAuthNotice: true);
     try {
       final db = _ref.read(databaseProvider);
       final items = await db.inventoryItemsDao.getAllForExport();
@@ -244,9 +346,38 @@ class SyncNotifier extends StateNotifier<SyncState> {
         isSyncing: false,
         lastSyncedAt: now,
         spreadsheetId: sheetId,
+        needsReauth: false,
         clearError: true,
+        clearAuthNotice: true,
       );
     } catch (e) {
+      if (fromAutoBackup) {
+        // Silent auto path: never show the red "Export failed" banner.
+        if (isGoogleAuthFailure(e)) {
+          await _sheetsService.invalidateStaleCredential();
+          _markNeedsReauth(
+            notice:
+                'Sign in again to keep backups running. Your Google session expired.',
+          );
+        } else {
+          state = state.copyWith(isSyncing: false, clearError: true);
+        }
+        return;
+      }
+
+      if (isGoogleAuthFailure(e)) {
+        await _sheetsService.invalidateStaleCredential();
+        state = state.copyWith(
+          isSyncing: false,
+          needsReauth: true,
+          authNotice:
+              'Sign in again to export. Your Google session expired.',
+          clearError: true,
+          clearAccount: true,
+        );
+        return;
+      }
+
       state = state.copyWith(
         isSyncing: false,
         error: 'Export failed: $e',
@@ -261,7 +392,19 @@ class SyncNotifier extends StateNotifier<SyncState> {
       return null;
     }
 
-    state = state.copyWith(isImporting: true, clearError: true);
+    final ready = await _ensureAuthReady();
+    if (!ready) {
+      state = state.copyWith(
+        needsReauth: true,
+        authNotice:
+            'Sign in again to import. Your Google session expired.',
+        clearError: true,
+        clearAccount: state.account != null,
+      );
+      return null;
+    }
+
+    state = state.copyWith(isImporting: true, clearError: true, clearAuthNotice: true);
     try {
       final importData = await _sheetsService.importFromSheets(
         existingSpreadsheetId: state.spreadsheetId,
@@ -294,6 +437,18 @@ class SyncNotifier extends StateNotifier<SyncState> {
         expensesCount: importData.expenses.length,
       );
     } catch (e) {
+      if (isGoogleAuthFailure(e)) {
+        await _sheetsService.invalidateStaleCredential();
+        state = state.copyWith(
+          isImporting: false,
+          needsReauth: true,
+          authNotice:
+              'Sign in again to import. Your Google session expired.',
+          clearError: true,
+          clearAccount: true,
+        );
+        return null;
+      }
       state = state.copyWith(
         isImporting: false,
         error: 'Import failed: $e',

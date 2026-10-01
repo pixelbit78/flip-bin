@@ -104,6 +104,13 @@ class GoogleSessionStore {
     );
   }
 
+  /// Clears only the cached OAuth bearer (keeps email / spreadsheet hints).
+  Future<void> clearAccessTokenOnly() async {
+    final prefs = await _prefs;
+    await prefs.remove(_kAccessToken);
+    await prefs.remove(_kTokenExpiryMs);
+  }
+
   Future<void> clearAuth() async {
     final prefs = await _prefs;
     await prefs.remove(_kEmail);

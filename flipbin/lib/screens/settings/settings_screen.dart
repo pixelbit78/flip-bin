@@ -21,11 +21,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void initState() {
     super.initState();
     _clientIdController = TextEditingController(text: GoogleSheetsService.defaultClientId);
-    // PWA: check daily auto-backup when Settings opens.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ref.read(syncProvider.notifier).maybeRunAutoBackup();
-    });
+    // Auto-backup runs on app load / resume (see SyncNotifier.restoreSession and
+    // ScaffoldWithNavBar) — not when opening Settings, so stale Google auth
+    // cannot spam a red Drive 401 banner here.
   }
 
   @override
@@ -356,7 +354,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Automatic daily backup'),
                       subtitle: const Text(
-                        'When On, FlipBin exports to Google Sheets if the last successful export was 24+ hours ago. Runs on app open, when you return to the app, or when Settings loads (web PWA has no reliable background job).',
+                        'When On, FlipBin exports to Google Sheets on app open (and when you return to the app) if you are signed in and the last successful backup was 24+ hours ago. Web PWA has no reliable true background job.',
                         style: TextStyle(fontSize: 12, color: Colors.white54),
                       ),
                       value: syncState.autoBackupEnabled,
@@ -372,8 +370,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             onPressed: (syncState.isSyncing || syncState.isImporting || !syncState.isSignedIn)
                                 ? null
                                 : () async {
+                                    if (syncState.needsReauth) {
+                                      await syncNotifier.signIn();
+                                      return;
+                                    }
                                     await syncNotifier.export();
-                                    if (context.mounted && syncState.error == null) {
+                                    final after = ref.read(syncProvider);
+                                    if (context.mounted &&
+                                        after.error == null &&
+                                        !after.needsReauth) {
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(
                                           content: Text('Successfully exported data to Google Sheets!'),
@@ -415,6 +420,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         'Sign in above to enable Google Sheets export and import.',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 12, color: Colors.white38),
+                      ),
+                    ],
+                    if (syncState.needsReauth || syncState.authNotice != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.info_outline, color: Colors.amber, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                syncState.authNotice ??
+                                    'Sign in again to keep backups running.',
+                                style: const TextStyle(color: Colors.amber, fontSize: 12),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            TextButton(
+                              onPressed: () => syncNotifier.signIn(),
+                              child: const Text('Sign In'),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                     if (syncState.error != null && syncState.isSignedIn) ...[
