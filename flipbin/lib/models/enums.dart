@@ -124,8 +124,12 @@ enum ItemStatus {
 }
 
 /// Type of business expense.
+///
+/// Scanner quick-add chips use [shipping] / [business] / [other]. Full forms
+/// and filters also expose [equipment], [software], and [travel].
 enum ExpenseType {
   shipping,
+  business,
   equipment,
   software,
   travel,
@@ -135,6 +139,8 @@ enum ExpenseType {
     switch (this) {
       case ExpenseType.shipping:
         return 'Shipping';
+      case ExpenseType.business:
+        return 'Business';
       case ExpenseType.equipment:
         return 'Equipment';
       case ExpenseType.software:
@@ -156,4 +162,11 @@ enum ExpenseType {
     }
     return ExpenseType.other;
   }
+
+  /// Quick-add chip subset used by the scanner expense overlay.
+  static const List<ExpenseType> scannerQuickAdd = [
+    ExpenseType.shipping,
+    ExpenseType.business,
+    ExpenseType.other,
+  ];
 }

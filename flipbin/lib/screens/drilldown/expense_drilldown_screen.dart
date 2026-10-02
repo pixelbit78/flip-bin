@@ -35,6 +35,8 @@ class ExpenseDrillDownScreen extends ConsumerWidget {
     switch (type) {
       case ExpenseType.shipping:
         return Icons.local_shipping_outlined;
+      case ExpenseType.business:
+        return Icons.business_center_outlined;
       case ExpenseType.equipment:
         return Icons.inventory_2_outlined;
       case ExpenseType.software:
@@ -50,6 +52,8 @@ class ExpenseDrillDownScreen extends ConsumerWidget {
     switch (type) {
       case ExpenseType.shipping:
         return const Color(0xFF00897B);
+      case ExpenseType.business:
+        return const Color(0xFF5C6BC0);
       case ExpenseType.equipment:
         return const Color(0xFF7E57C2);
       case ExpenseType.software:

@@ -15,6 +15,7 @@ import 'package:flipbin/services/barcode_lookup_service.dart';
 import 'package:flipbin/services/camera_permission_store.dart';
 import 'package:flipbin/utils/proxied_image_url.dart';
 import 'package:flipbin/utils/web_camera_permission.dart';
+import 'package:flipbin/widgets/scanner/scanner_quick_add_sheets.dart';
 import 'package:flipbin/widgets/status_badge.dart';
 
 /// Screen providing live camera barcode scanning with manual UPC lookup fallback.
@@ -647,12 +648,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                           children: [
                             Expanded(
                               child: ElevatedButton.icon(
-                                onPressed: () {
-                                  context.go(
-                                    '/inventory/new',
-                                    extra: scanState.result,
-                                  );
-                                },
+                                onPressed: () => _openInventoryQuickAdd(
+                                  scanState.result!,
+                                ),
                                 icon: const Icon(Icons.add_box),
                                 label: const Text('Add to Inventory'),
                               ),
@@ -660,12 +658,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: () {
-                                  context.go(
-                                    '/expenses/new',
-                                    extra: scanState.result,
-                                  );
-                                },
+                                onPressed: () => _openExpenseQuickAdd(
+                                  scanState.result!,
+                                ),
                                 icon: const Icon(Icons.post_add),
                                 label: const Text('Add to Expense'),
                               ),
@@ -699,15 +694,16 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                     ElevatedButton(
                       onPressed: () {
                         final raw = scanState.rawBarcode;
-                        context.go(
-                          '/inventory/new',
-                          extra: raw != null && raw.isNotEmpty
-                              ? BarcodeResult(
-                                  barcode: raw,
-                                  source: 'manual',
-                                )
-                              : null,
-                        );
+                        final scan = raw != null && raw.isNotEmpty
+                            ? BarcodeResult(
+                                barcode: raw,
+                                source: 'manual',
+                              )
+                            : const BarcodeResult(
+                                barcode: '',
+                                source: 'manual',
+                              );
+                        _openInventoryQuickAdd(scan);
                       },
                       child: const Text('Add Manually to Inventory'),
                     ),
@@ -807,6 +803,40 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _openInventoryQuickAdd(BarcodeResult scan) async {
+    final saved = await showScannerInventoryQuickAdd(
+      context: context,
+      ref: ref,
+      scan: scan,
+    );
+    if (!mounted || !saved) return;
+    ref.read(scannerProvider.notifier).reset();
+    _lastHandledCode = null;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Added to inventory'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _openExpenseQuickAdd(BarcodeResult scan) async {
+    final saved = await showScannerExpenseQuickAdd(
+      context: context,
+      ref: ref,
+      scan: scan,
+    );
+    if (!mounted || !saved) return;
+    ref.read(scannerProvider.notifier).reset();
+    _lastHandledCode = null;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Added to expenses'),
+        duration: Duration(seconds: 2),
       ),
     );
   }
