@@ -111,6 +111,12 @@ enum ItemStatus {
     }
   }
 
+  /// Next status in cycle order: Active → Sold → Personal → Active.
+  ItemStatus get next {
+    const values = ItemStatus.values;
+    return values[(index + 1) % values.length];
+  }
+
   static ItemStatus fromLabel(String? label) {
     if (label == null || label.trim().isEmpty) return ItemStatus.active;
     final lower = label.trim().toLowerCase();

@@ -44,4 +44,12 @@ void main() {
       expect(ItemType.vhs.label, 'VHS');
     });
   });
+
+  group('ItemStatus.next', () {
+    test('cycles Active → Sold → Personal → Active', () {
+      expect(ItemStatus.active.next, ItemStatus.sold);
+      expect(ItemStatus.sold.next, ItemStatus.personal);
+      expect(ItemStatus.personal.next, ItemStatus.active);
+    });
+  });
 }

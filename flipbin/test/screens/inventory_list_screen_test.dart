@@ -190,6 +190,90 @@ void main() {
     expect(capturedFilter?.searchQuery, equals('012345678905'));
   });
 
+  testWidgets('tapping status badge cycles status without opening edit', (tester) async {
+    final db = FlipBinDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    final id = await db.inventoryItemsDao.insertItem(
+      InventoryItemsCompanion.insert(
+        dateAdded: DateTime(2026, 1, 10),
+        itemDescription: 'Cycle Me',
+        type: ItemType.game,
+        cost: 9.99,
+        status: ItemStatus.active,
+      ),
+    );
+
+    var navigatedToEdit = false;
+    final router = GoRouter(
+      initialLocation: '/inventory',
+      routes: [
+        GoRoute(
+          path: '/inventory',
+          builder: (_, __) => const InventoryListScreen(),
+          routes: [
+            GoRoute(
+              path: ':id',
+              builder: (_, __) {
+                navigatedToEdit = true;
+                return const Scaffold(body: Text('Edit Item'));
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          databaseProvider.overrideWithValue(db),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cycle Me'), findsOneWidget);
+    expect(
+      find.descendant(of: find.byType(StatusBadge), matching: find.text('Active')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.descendant(of: find.byType(StatusBadge), matching: find.text('Active')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(navigatedToEdit, isFalse);
+    expect(find.text('Edit Item'), findsNothing);
+
+    final updated = await db.inventoryItemsDao.getById(id);
+    expect(updated.status, equals(ItemStatus.sold));
+    expect(updated.dateSold, isNotNull);
+
+    expect(
+      find.descendant(of: find.byType(StatusBadge), matching: find.text('Sold')),
+      findsOneWidget,
+    );
+
+    // Cycle Sold → Personal; dateSold must remain
+    final soldAt = updated.dateSold!;
+    await tester.tap(
+      find.descendant(of: find.byType(StatusBadge), matching: find.text('Sold')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(navigatedToEdit, isFalse);
+    final personal = await db.inventoryItemsDao.getById(id);
+    expect(personal.status, equals(ItemStatus.personal));
+    expect(personal.dateSold, equals(soldAt));
+
+    // Drain Drift stream cancel timers before ProviderScope unmounts.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 50));
+  });
+
   testWidgets('item detail form validates required fields', (tester) async {
     await tester.pumpWidget(
       const ProviderScope(

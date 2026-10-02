@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:drift/native.dart';
@@ -143,6 +144,35 @@ void main() {
     final retrieved = await db.inventoryItemsDao.getById(id);
     expect(retrieved.status, equals(ItemStatus.sold));
     expect(retrieved.dateSold, isNotNull);
+  });
+
+  test('updateInventoryItem leaving sold does not clear dateSold', () async {
+    final controller = container.read(inventoryControllerProvider);
+    final now = DateTime.now();
+    final soldAt = DateTime(2026, 9, 15);
+
+    final id = await controller.saveInventoryItem(
+      InventoryItemsCompanion.insert(
+        dateAdded: now,
+        itemDescription: 'Was Sold',
+        type: ItemType.dvd,
+        cost: 7.0,
+        status: ItemStatus.sold,
+        dateSold: Value(soldAt),
+      ),
+    );
+
+    final item = await db.inventoryItemsDao.getById(id);
+    expect(item.dateSold, equals(soldAt));
+
+    // Cycle away from Sold (matches Edit Item: do not clear dateSold)
+    await controller.updateInventoryItem(
+      item.copyWith(status: ItemStatus.personal),
+    );
+
+    final retrieved = await db.inventoryItemsDao.getById(id);
+    expect(retrieved.status, equals(ItemStatus.personal));
+    expect(retrieved.dateSold, equals(soldAt));
   });
 
   test('scannerProvider replaces result when new barcode scanned during lookup', () async {
