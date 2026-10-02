@@ -139,8 +139,15 @@ class InventoryController {
     if (item.status == ItemStatus.sold && item.dateSold == null) {
       updated = item.copyWith(dateSold: Value(DateTime.now()));
     }
-    await _db.inventoryItemsDao.updateItem(updated);
+    final ok = await _db.inventoryItemsDao.updateItem(updated);
+    if (!ok) {
+      throw StateError('Failed to update inventory item ${item.id}');
+    }
     _invalidateAll();
+    final barcode = updated.barcode?.trim();
+    if (barcode != null && barcode.isNotEmpty) {
+      _ref.invalidate(inventoryMatchesByBarcodeProvider(barcode));
+    }
   }
 
   Future<void> deleteInventoryItem(int id) async {

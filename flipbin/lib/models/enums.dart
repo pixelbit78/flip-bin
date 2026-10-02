@@ -111,13 +111,12 @@ enum ItemStatus {
     }
   }
 
-  /// List-chip cycle: Active ↔ Personal. Sold is locked (returns itself).
+  /// List-chip next status: Active/Personal → Sold. Sold is locked.
   ItemStatus get next {
     switch (this) {
       case ItemStatus.active:
-        return ItemStatus.personal;
       case ItemStatus.personal:
-        return ItemStatus.active;
+        return ItemStatus.sold;
       case ItemStatus.sold:
         return ItemStatus.sold;
     }

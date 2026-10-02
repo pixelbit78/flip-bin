@@ -46,9 +46,9 @@ void main() {
   });
 
   group('ItemStatus.next', () {
-    test('cycles Active ↔ Personal; Sold stays Sold', () {
-      expect(ItemStatus.active.next, ItemStatus.personal);
-      expect(ItemStatus.personal.next, ItemStatus.active);
+    test('Active and Personal go to Sold; Sold stays Sold', () {
+      expect(ItemStatus.active.next, ItemStatus.sold);
+      expect(ItemStatus.personal.next, ItemStatus.sold);
       expect(ItemStatus.sold.next, ItemStatus.sold);
     });
   });

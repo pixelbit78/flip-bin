@@ -190,7 +190,7 @@ void main() {
     expect(capturedFilter?.searchQuery, equals('012345678905'));
   });
 
-  testWidgets('tapping status badge cycles Active ↔ Personal without opening edit', (tester) async {
+  testWidgets('tapping status badge marks Active as Sold without opening edit', (tester) async {
     final db = FlipBinDatabase(NativeDatabase.memory());
     addTearDown(db.close);
 
@@ -248,13 +248,38 @@ void main() {
     expect(navigatedToEdit, isFalse);
     expect(find.text('Edit Item'), findsNothing);
 
-    var updated = await db.inventoryItemsDao.getById(id);
-    expect(updated.status, equals(ItemStatus.personal));
-    expect(updated.dateSold, isNull);
-    expect(
-      find.descendant(of: find.byType(StatusBadge), matching: find.text('Personal')),
-      findsOneWidget,
+    final updated = await db.inventoryItemsDao.getById(id);
+    expect(updated.status, equals(ItemStatus.sold));
+    expect(updated.dateSold, isNotNull);
+
+    // Drain Drift stream cancel timers before ProviderScope unmounts.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 50));
+  });
+
+  testWidgets('tapping status badge marks Personal as Sold', (tester) async {
+    final db = FlipBinDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    final id = await db.inventoryItemsDao.insertItem(
+      InventoryItemsCompanion.insert(
+        dateAdded: DateTime(2026, 1, 10),
+        itemDescription: 'Personal Item',
+        type: ItemType.cd,
+        cost: 3.50,
+        status: ItemStatus.personal,
+      ),
     );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          databaseProvider.overrideWithValue(db),
+        ],
+        child: const MaterialApp(home: InventoryListScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
 
     await tester.tap(
       find.descendant(
@@ -262,11 +287,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(navigatedToEdit, isFalse);
-    updated = await db.inventoryItemsDao.getById(id);
-    expect(updated.status, equals(ItemStatus.active));
+    final updated = await db.inventoryItemsDao.getById(id);
+    expect(updated.status, equals(ItemStatus.sold));
+    expect(updated.dateSold, isNotNull);
 
-    // Drain Drift stream cancel timers before ProviderScope unmounts.
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 50));
   });

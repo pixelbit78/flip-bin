@@ -60,6 +60,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   /// in mobile_scanner 7.x). Handles both captures and stream errors.
   StreamSubscription<BarcodeCapture>? _barcodeSubscription;
 
+  /// In-flight Save-as-sold item ids (prevents double taps).
+  final Set<int> _savingSoldIds = {};
+
   bool _cameraStarted = false;
   bool _startingCamera = true;
 
@@ -752,54 +755,51 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
 
   Widget _buildInventoryMatchRow(InventoryItem item) {
     final dateFmt = DateFormat.yMMMd();
+    final saving = _savingSoldIds.contains(item.id);
+    // Column + full-width button: a trailing ElevatedButton in a Row overflowed
+    // off-screen on narrow web/mobile viewports, so taps never hit the control.
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
         padding: const EdgeInsets.all(12.0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.itemDescription,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      StatusBadge(status: item.status),
-                      Text(
-                        '\$${item.cost.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                        ),
-                      ),
-                      Text(
-                        'Added ${dateFmt.format(item.dateAdded)}',
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+            Text(
+              item.itemDescription,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                StatusBadge(status: item.status),
+                Text(
+                  '\$${item.cost.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+                Text(
+                  'Added ${dateFmt.format(item.dateAdded)}',
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
             ElevatedButton(
-              onPressed: () => _saveAsSold(item),
-              child: const Text('Save as sold'),
+              key: Key('saveAsSold-${item.id}'),
+              onPressed: saving ? null : () => _saveAsSold(item),
+              child: Text(saving ? 'Saving…' : 'Save as sold'),
             ),
           ],
         ),
@@ -842,6 +842,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   }
 
   Future<void> _saveAsSold(InventoryItem item) async {
+    if (_savingSoldIds.contains(item.id)) return;
+    setState(() => _savingSoldIds.add(item.id));
     try {
       await ref.read(inventoryControllerProvider).updateInventoryItem(
             item.copyWith(status: ItemStatus.sold),
@@ -858,6 +860,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not mark as sold: $e')),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _savingSoldIds.remove(item.id));
+      }
     }
   }
 }
