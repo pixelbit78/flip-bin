@@ -526,6 +526,31 @@ void main() {
       expect(months[4].total, equals(40.0)); // August (index 4 of Apr..Sep)
       expect(months[0].total, equals(0.0));
     });
+
+    test('watchMonthlyTotals monthCount 24 includes older months', () async {
+      final anchor = DateTime(2026, 9, 15);
+      await db.expensesDao.insertExpense(
+        ExpensesCompanion.insert(
+          date: DateTime(2025, 1, 10),
+          merchant: 'Old',
+          itemDescription: 'Jan 2025',
+          quantity: const Value(1),
+          unitPrice: 12.0,
+          expenseType: ExpenseType.other,
+        ),
+      );
+
+      final months = await db.expensesDao
+          .watchMonthlyTotals(monthCount: 24, anchor: anchor)
+          .first;
+      expect(months.length, equals(24));
+      expect(months.first.month, equals(DateTime(2024, 10, 1)));
+      expect(months.last.month, equals(DateTime(2026, 9, 1)));
+      final jan2025 = months.firstWhere(
+        (m) => m.month == DateTime(2025, 1, 1),
+      );
+      expect(jan2025.total, equals(12.0));
+    });
   });
 
   group('BarcodeCacheDao'

@@ -748,7 +748,7 @@ class _MonthlyExpensesCard extends StatelessWidget {
     final now = DateTime.now();
     final data = months ??
         [
-          for (var i = 5; i >= 0; i--)
+          for (var i = kDashboardMonthHistory - 1; i >= 0; i--)
             MonthlyExpenseTotal(
               month: DateTime(now.year, now.month - i, 1),
               total: 0,
@@ -762,25 +762,31 @@ class _MonthlyExpensesCard extends StatelessWidget {
       badge: yearLabel,
       child: SizedBox(
         height: 150,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapUp: (details) {
-                final month = _MonthlyBarsPainter.hitTestMonth(
-                  details.localPosition,
-                  constraints.biggest,
-                  data,
-                );
-                if (month != null) {
-                  DashboardScreen.pushExpenseDrillDown(context, month);
-                }
-              },
-              child: CustomPaint(
-                painter: _MonthlyBarsPainter(months: data, now: now),
-                child: const SizedBox.expand(),
-              ),
+        child: _ScrollableMonthlyChart(
+          monthCount: data.length,
+          axisPainter: _MonthlyBarsPainter(
+            months: data,
+            now: now,
+            paintAxis: true,
+            paintBars: false,
+          ),
+          barsPainter: _MonthlyBarsPainter(
+            months: data,
+            now: now,
+            leftGutter: 0,
+            paintAxis: false,
+            paintBars: true,
+          ),
+          onTapMonth: (localPos, chartSize) {
+            final month = _MonthlyBarsPainter.hitTestMonth(
+              localPos,
+              chartSize,
+              data,
+              leftGutter: 0,
             );
+            if (month != null) {
+              DashboardScreen.pushExpenseDrillDown(context, month);
+            }
           },
         ),
       ),
@@ -789,16 +795,24 @@ class _MonthlyExpensesCard extends StatelessWidget {
 }
 
 class _MonthlyBarsPainter extends CustomPainter {
-  _MonthlyBarsPainter({required this.months, required this.now});
+  _MonthlyBarsPainter({
+    required this.months,
+    required this.now,
+    this.leftGutter = 36.0,
+    this.paintAxis = true,
+    this.paintBars = true,
+  });
 
   final List<MonthlyExpenseTotal> months;
   final DateTime now;
+  final double leftGutter;
+  final bool paintAxis;
+  final bool paintBars;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (months.isEmpty) return;
 
-    const leftGutter = 36.0;
     const bottomGutter = 28.0;
     const topPad = 16.0;
     final chartW = size.width - leftGutter;
@@ -806,34 +820,38 @@ class _MonthlyBarsPainter extends CustomPainter {
     final maxVal = months.map((m) => m.total).fold<double>(0, math.max);
     final yMax = maxVal <= 0 ? 150.0 : _niceMax(maxVal);
 
-    final gridPaint = Paint()
-      ..color = const Color(0x0FFFFFFF)
-      ..strokeWidth = 1;
-    final baselinePaint = Paint()
-      ..color = const Color(0x14FFFFFF)
-      ..strokeWidth = 1;
+    if (paintAxis) {
+      final gridPaint = Paint()
+        ..color = const Color(0x0FFFFFFF)
+        ..strokeWidth = 1;
+      final baselinePaint = Paint()
+        ..color = const Color(0x14FFFFFF)
+        ..strokeWidth = 1;
 
-    // Grid lines at 100%, 50%, 0%
-    for (final t in [0.0, 0.5, 1.0]) {
-      final y = topPad + chartH * (1 - t);
-      canvas.drawLine(
-        Offset(leftGutter, y),
-        Offset(size.width, y),
-        t == 0 ? baselinePaint : gridPaint,
-      );
-      final label = _axisLabel(yMax * t);
-      final tp = TextPainter(
-        text: TextSpan(
-          text: label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0x80FFFFFF),
+      // Grid lines at 100%, 50%, 0%
+      for (final t in [0.0, 0.5, 1.0]) {
+        final y = topPad + chartH * (1 - t);
+        canvas.drawLine(
+          Offset(leftGutter, y),
+          Offset(size.width, y),
+          t == 0 ? baselinePaint : gridPaint,
+        );
+        final label = _axisLabel(yMax * t);
+        final tp = TextPainter(
+          text: TextSpan(
+            text: label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0x80FFFFFF),
+            ),
           ),
-        ),
-        textDirection: ui.TextDirection.ltr,
-      )..layout(maxWidth: leftGutter - 6);
-      tp.paint(canvas, Offset(leftGutter - 6 - tp.width, y - tp.height / 2));
+          textDirection: ui.TextDirection.ltr,
+        )..layout(maxWidth: leftGutter - 6);
+        tp.paint(canvas, Offset(leftGutter - 6 - tp.width, y - tp.height / 2));
+      }
     }
+
+    if (!paintBars) return;
 
     final n = months.length;
     final slot = chartW / n;
@@ -916,13 +934,16 @@ class _MonthlyBarsPainter extends CustomPainter {
   }
 
   /// Returns the month under [localPos], or null if outside a bar slot.
+  ///
+  /// [localPos] must be relative to the painted chart (scroll content), not
+  /// the viewport.
   static DateTime? hitTestMonth(
     Offset localPos,
     Size size,
-    List<MonthlyExpenseTotal> months,
-  ) {
+    List<MonthlyExpenseTotal> months, {
+    double leftGutter = 36.0,
+  }) {
     if (months.isEmpty) return null;
-    const leftGutter = 36.0;
     if (localPos.dx < leftGutter) return null;
     final chartW = size.width - leftGutter;
     final n = months.length;
@@ -934,7 +955,11 @@ class _MonthlyBarsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _MonthlyBarsPainter oldDelegate) =>
-      oldDelegate.months != months || oldDelegate.now != now;
+      oldDelegate.months != months ||
+      oldDelegate.now != now ||
+      oldDelegate.leftGutter != leftGutter ||
+      oldDelegate.paintAxis != paintAxis ||
+      oldDelegate.paintBars != paintBars;
 }
 
 // ─── Monthly sold/listed ────────────────────────────────────────────────────
@@ -961,7 +986,7 @@ class _MonthlyInventoryCard extends StatelessWidget {
     final now = DateTime.now();
     final data = months ??
         [
-          for (var i = 5; i >= 0; i--)
+          for (var i = kDashboardMonthHistory - 1; i >= 0; i--)
             MonthlyInventoryCount(
               month: DateTime(now.year, now.month - i, 1),
               count: 0,
@@ -976,31 +1001,36 @@ class _MonthlyInventoryCard extends StatelessWidget {
       subtitle: subtitle,
       child: SizedBox(
         height: 150,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapUp: onMonthTap == null
-                  ? null
-                  : (details) {
-                      final month = _MonthlyInventoryBarsPainter.hitTestMonth(
-                        details.localPosition,
-                        constraints.biggest,
-                        data,
-                      );
-                      if (month != null) onMonthTap!(month);
-                    },
-              child: CustomPaint(
-                painter: _MonthlyInventoryBarsPainter(
-                  months: data,
-                  now: now,
-                  color: color,
-                  currentColor: currentColor,
-                ),
-                child: const SizedBox.expand(),
-              ),
-            );
-          },
+        child: _ScrollableMonthlyChart(
+          monthCount: data.length,
+          axisPainter: _MonthlyInventoryBarsPainter(
+            months: data,
+            now: now,
+            color: color,
+            currentColor: currentColor,
+            paintAxis: true,
+            paintBars: false,
+          ),
+          barsPainter: _MonthlyInventoryBarsPainter(
+            months: data,
+            now: now,
+            color: color,
+            currentColor: currentColor,
+            leftGutter: 0,
+            paintAxis: false,
+            paintBars: true,
+          ),
+          onTapMonth: onMonthTap == null
+              ? null
+              : (localPos, chartSize) {
+                  final month = _MonthlyInventoryBarsPainter.hitTestMonth(
+                    localPos,
+                    chartSize,
+                    data,
+                    leftGutter: 0,
+                  );
+                  if (month != null) onMonthTap!(month);
+                },
         ),
       ),
     );
@@ -1013,18 +1043,23 @@ class _MonthlyInventoryBarsPainter extends CustomPainter {
     required this.now,
     required this.color,
     required this.currentColor,
+    this.leftGutter = 36.0,
+    this.paintAxis = true,
+    this.paintBars = true,
   });
 
   final List<MonthlyInventoryCount> months;
   final DateTime now;
   final Color color;
   final Color currentColor;
+  final double leftGutter;
+  final bool paintAxis;
+  final bool paintBars;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (months.isEmpty) return;
 
-    const leftGutter = 36.0;
     const bottomGutter = 28.0;
     const topPad = 16.0;
     final chartW = size.width - leftGutter;
@@ -1032,32 +1067,36 @@ class _MonthlyInventoryBarsPainter extends CustomPainter {
     final maxVal = months.map((m) => m.count).fold<int>(0, math.max);
     final yMax = maxVal <= 0 ? 1 : _niceMax(maxVal);
 
-    final gridPaint = Paint()
-      ..color = const Color(0x0FFFFFFF)
-      ..strokeWidth = 1;
-    final baselinePaint = Paint()
-      ..color = const Color(0x14FFFFFF)
-      ..strokeWidth = 1;
+    if (paintAxis) {
+      final gridPaint = Paint()
+        ..color = const Color(0x0FFFFFFF)
+        ..strokeWidth = 1;
+      final baselinePaint = Paint()
+        ..color = const Color(0x14FFFFFF)
+        ..strokeWidth = 1;
 
-    for (final t in [0.0, 0.5, 1.0]) {
-      final y = topPad + chartH * (1 - t);
-      canvas.drawLine(
-        Offset(leftGutter, y),
-        Offset(size.width, y),
-        t == 0 ? baselinePaint : gridPaint,
-      );
-      final tp = TextPainter(
-        text: TextSpan(
-          text: '${(yMax * t).round()}',
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0x80FFFFFF),
+      for (final t in [0.0, 0.5, 1.0]) {
+        final y = topPad + chartH * (1 - t);
+        canvas.drawLine(
+          Offset(leftGutter, y),
+          Offset(size.width, y),
+          t == 0 ? baselinePaint : gridPaint,
+        );
+        final tp = TextPainter(
+          text: TextSpan(
+            text: '${(yMax * t).round()}',
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0x80FFFFFF),
+            ),
           ),
-        ),
-        textDirection: ui.TextDirection.ltr,
-      )..layout(maxWidth: leftGutter - 6);
-      tp.paint(canvas, Offset(leftGutter - 6 - tp.width, y - tp.height / 2));
+          textDirection: ui.TextDirection.ltr,
+        )..layout(maxWidth: leftGutter - 6);
+        tp.paint(canvas, Offset(leftGutter - 6 - tp.width, y - tp.height / 2));
+      }
     }
+
+    if (!paintBars) return;
 
     final n = months.length;
     final slot = chartW / n;
@@ -1130,13 +1169,16 @@ class _MonthlyInventoryBarsPainter extends CustomPainter {
   }
 
   /// Returns the month under [localPos], or null if outside a bar slot.
+  ///
+  /// [localPos] must be relative to the painted chart (scroll content), not
+  /// the viewport.
   static DateTime? hitTestMonth(
     Offset localPos,
     Size size,
-    List<MonthlyInventoryCount> months,
-  ) {
+    List<MonthlyInventoryCount> months, {
+    double leftGutter = 36.0,
+  }) {
     if (months.isEmpty) return null;
-    const leftGutter = 36.0;
     if (localPos.dx < leftGutter) return null;
     final chartW = size.width - leftGutter;
     final n = months.length;
@@ -1151,5 +1193,105 @@ class _MonthlyInventoryBarsPainter extends CustomPainter {
       oldDelegate.months != months ||
       oldDelegate.now != now ||
       oldDelegate.color != color ||
-      oldDelegate.currentColor != currentColor;
+      oldDelegate.currentColor != currentColor ||
+      oldDelegate.leftGutter != leftGutter ||
+      oldDelegate.paintAxis != paintAxis ||
+      oldDelegate.paintBars != paintBars;
+}
+
+// ─── Shared horizontal monthly chart scroller ───────────────────────────────
+
+/// Fixed Y-axis + horizontally scrollable bars.
+///
+/// ~[kDashboardVisibleMonthSlots] months fit the viewport; content is wider
+/// when [monthCount] is larger. Default scroll position shows the newest end.
+class _ScrollableMonthlyChart extends StatefulWidget {
+  const _ScrollableMonthlyChart({
+    required this.monthCount,
+    required this.axisPainter,
+    required this.barsPainter,
+    this.onTapMonth,
+  });
+
+  final int monthCount;
+  final CustomPainter axisPainter;
+  final CustomPainter barsPainter;
+  final void Function(Offset localPos, Size chartSize)? onTapMonth;
+
+  @override
+  State<_ScrollableMonthlyChart> createState() =>
+      _ScrollableMonthlyChartState();
+}
+
+class _ScrollableMonthlyChartState extends State<_ScrollableMonthlyChart> {
+  static const _leftGutter = 36.0;
+
+  final _controller = ScrollController();
+  bool _didInitialJump = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _jumpToNewest() {
+    if (_didInitialJump || !_controller.hasClients) return;
+    final max = _controller.position.maxScrollExtent;
+    if (max <= 0) return;
+    _controller.jumpTo(max);
+    _didInitialJump = true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final n = math.max(widget.monthCount, 1);
+        final visibleSlots = math.min(kDashboardVisibleMonthSlots, n);
+        final viewportChartW = math.max(constraints.maxWidth - _leftGutter, 0);
+        final slotW = viewportChartW / visibleSlots;
+        final contentW = slotW * n;
+
+        WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToNewest());
+
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: CustomPaint(painter: widget.axisPainter),
+            ),
+            Positioned(
+              left: _leftGutter,
+              top: 0,
+              right: 0,
+              bottom: 0,
+              child: SingleChildScrollView(
+                controller: _controller,
+                scrollDirection: Axis.horizontal,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTapUp: widget.onTapMonth == null
+                      ? null
+                      : (details) {
+                          widget.onTapMonth!(
+                            details.localPosition,
+                            Size(contentW, constraints.maxHeight),
+                          );
+                        },
+                  child: SizedBox(
+                    width: contentW,
+                    height: constraints.maxHeight,
+                    child: CustomPaint(
+                      painter: widget.barsPainter,
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }

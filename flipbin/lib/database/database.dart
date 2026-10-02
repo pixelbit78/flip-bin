@@ -409,6 +409,7 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
 
   /// Item counts by `dateSold` for the last [monthCount] calendar months.
   /// Oldest month first; items without a sale date are excluded.
+  /// Home dashboard requests 24 months; default stays 6 for other callers.
   Stream<List<MonthlyInventoryCount>> watchMonthlySoldCounts({
     int monthCount = 6,
     DateTime? anchor,
@@ -424,6 +425,7 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
 
   /// Item counts by `dateAdded` for the last [monthCount] calendar months.
   /// Oldest month first.
+  /// Home dashboard requests 24 months; default stays 6 for other callers.
   Stream<List<MonthlyInventoryCount>> watchMonthlyListedCounts({
     int monthCount = 6,
     DateTime? anchor,
@@ -556,6 +558,7 @@ class ExpensesDao extends DatabaseAccessor<FlipBinDatabase> with _$ExpensesDaoMi
 
   /// Monthly expense totals (`qty × unitPrice`) for the last [monthCount] calendar months
   /// ending at [anchor] (defaults to now). Oldest month first.
+  /// Home dashboard requests 24 months; default stays 6 for other callers.
   Stream<List<MonthlyExpenseTotal>> watchMonthlyTotals({
     int monthCount = 6,
     DateTime? anchor,

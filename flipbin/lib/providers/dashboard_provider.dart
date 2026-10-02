@@ -31,25 +31,39 @@ final sellThroughProvider = StreamProvider<SellThroughMetrics>((ref) {
   return db.inventoryItemsDao.watchSellThrough();
 });
 
-/// Last 6 calendar months of expense totals (qty × unitPrice), oldest first.
+/// How many calendar months of history Home monthly charts load.
+///
+/// Charts keep a ~[kDashboardVisibleMonthSlots]-month viewport and scroll
+/// horizontally to older months.
+const int kDashboardMonthHistory = 24;
+
+/// Visible month slots in the Home monthly chart viewport (bar sizing).
+const int kDashboardVisibleMonthSlots = 6;
+
+/// Last [kDashboardMonthHistory] calendar months of expense totals
+/// (qty × unitPrice), oldest first.
 final monthlyExpensesProvider =
     StreamProvider<List<MonthlyExpenseTotal>>((ref) {
   final db = ref.watch(databaseProvider);
-  return db.expensesDao.watchMonthlyTotals();
+  return db.expensesDao.watchMonthlyTotals(monthCount: kDashboardMonthHistory);
 });
 
-/// Last 6 calendar months of sold-item counts by `dateSold`, oldest first.
+/// Last [kDashboardMonthHistory] calendar months of sold-item counts by
+/// `dateSold`, oldest first.
 final monthlySoldProvider =
     StreamProvider<List<MonthlyInventoryCount>>((ref) {
   final db = ref.watch(databaseProvider);
-  return db.inventoryItemsDao.watchMonthlySoldCounts();
+  return db.inventoryItemsDao
+      .watchMonthlySoldCounts(monthCount: kDashboardMonthHistory);
 });
 
-/// Last 6 calendar months of listed-item counts by `dateAdded`, oldest first.
+/// Last [kDashboardMonthHistory] calendar months of listed-item counts by
+/// `dateAdded`, oldest first.
 final monthlyListedProvider =
     StreamProvider<List<MonthlyInventoryCount>>((ref) {
   final db = ref.watch(databaseProvider);
-  return db.inventoryItemsDao.watchMonthlyListedCounts();
+  return db.inventoryItemsDao
+      .watchMonthlyListedCounts(monthCount: kDashboardMonthHistory);
 });
 
 /// Exact currency for the Home **Total cost** KPI (`$1,847.32`).
