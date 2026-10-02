@@ -245,7 +245,8 @@ void main() {
     expect(formatDashboardTotalCost(0), '\$0.00');
   });
 
-  testWidgets('aging 30–59 taps drill-down; 90d+ does not', (tester) async {
+  testWidgets('aging rows open Active age-band drill-downs including 90d+',
+      (tester) async {
     String? navigatedRoute;
     final router = GoRouter(
       initialLocation: '/',
@@ -284,7 +285,6 @@ void main() {
     expect(navigatedRoute, contains('ageMax=59'));
     expect(navigatedRoute, contains('status=Active'));
 
-    // Pop back to dashboard for the 90d+ no-op check.
     router.pop();
     await tester.pumpAndSettle();
     navigatedRoute = null;
@@ -292,7 +292,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('90d+'));
     await tester.pumpAndSettle();
-    expect(navigatedRoute, isNull);
+    expect(navigatedRoute, isNotNull);
+    expect(navigatedRoute, contains('/drilldown/inventory'));
+    expect(navigatedRoute, contains('ageMin=90'));
+    expect(navigatedRoute, isNot(contains('ageMax=')));
+    expect(navigatedRoute, contains('status=Active'));
   });
 
   testWidgets('sell-through Sold row opens Sold 90-day drill-down',

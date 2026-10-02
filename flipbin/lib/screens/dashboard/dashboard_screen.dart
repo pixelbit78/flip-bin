@@ -425,7 +425,6 @@ class _AgingCapitalCard extends StatelessWidget {
               bucket: data.asList[i],
               color: _colors[i],
               maxAmount: maxAmt,
-              // Ship 30–59 and 60–89 only; 90d+ intentionally non-tappable.
               onTap: i == 0
                   ? () => DashboardScreen.pushInventoryDrillDown(
                         context,
@@ -436,7 +435,10 @@ class _AgingCapitalCard extends StatelessWidget {
                             context,
                             DrillDownQuery.aging(minDays: 60, maxDays: 89),
                           )
-                      : null,
+                      : () => DashboardScreen.pushInventoryDrillDown(
+                            context,
+                            DrillDownQuery.aging(minDays: 90),
+                          ),
             ),
           ],
         ],

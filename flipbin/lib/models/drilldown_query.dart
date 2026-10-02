@@ -269,9 +269,11 @@ class DrillDownQuery {
 
   // ─── Factory helpers for Home chart taps ─────────────────────────────────
 
-  static DrillDownQuery aging({required int minDays, required int maxDays}) {
+  static DrillDownQuery aging({required int minDays, int? maxDays}) {
+    final band =
+        maxDays != null ? '$minDays–${maxDays}d' : '${minDays}d+';
     return DrillDownQuery(
-      title: 'Aging · $minDays–${maxDays}d',
+      title: 'Aging · $band',
       status: ItemStatus.active,
       ageMinDays: minDays,
       ageMaxDays: maxDays,

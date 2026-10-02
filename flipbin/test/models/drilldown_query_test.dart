@@ -22,6 +22,18 @@ void main() {
       expect(q.toLocation(path: '/drilldown/inventory'), contains('ageMin=30'));
     });
 
+    test('aging 90d+ factory is open-ended Active band', () {
+      final q = DrillDownQuery.aging(minDays: 90);
+      expect(q.title, 'Aging · 90d+');
+      expect(q.status, ItemStatus.active);
+      expect(q.ageMinDays, 90);
+      expect(q.ageMaxDays, isNull);
+      expect(q.chips.map((c) => c.label).toList(), ['Active', '90d+']);
+      final loc = q.toLocation(path: '/drilldown/inventory');
+      expect(loc, contains('ageMin=90'));
+      expect(loc, isNot(contains('ageMax=')));
+    });
+
     test('sell-through Sold factory', () {
       final q = DrillDownQuery.sellThroughSold();
       expect(q.status, ItemStatus.sold);
