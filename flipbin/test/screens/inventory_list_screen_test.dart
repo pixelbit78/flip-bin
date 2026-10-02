@@ -190,7 +190,7 @@ void main() {
     expect(capturedFilter?.searchQuery, equals('012345678905'));
   });
 
-  testWidgets('tapping status badge cycles status without opening edit', (tester) async {
+  testWidgets('tapping status badge cycles Active ↔ Personal without opening edit', (tester) async {
     final db = FlipBinDatabase(NativeDatabase.memory());
     addTearDown(db.close);
 
@@ -248,28 +248,87 @@ void main() {
     expect(navigatedToEdit, isFalse);
     expect(find.text('Edit Item'), findsNothing);
 
-    final updated = await db.inventoryItemsDao.getById(id);
-    expect(updated.status, equals(ItemStatus.sold));
-    expect(updated.dateSold, isNotNull);
+    var updated = await db.inventoryItemsDao.getById(id);
+    expect(updated.status, equals(ItemStatus.personal));
+    expect(updated.dateSold, isNull);
+    expect(
+      find.descendant(of: find.byType(StatusBadge), matching: find.text('Personal')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.descendant(
+          of: find.byType(StatusBadge), matching: find.text('Personal')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(navigatedToEdit, isFalse);
+    updated = await db.inventoryItemsDao.getById(id);
+    expect(updated.status, equals(ItemStatus.active));
+
+    // Drain Drift stream cancel timers before ProviderScope unmounts.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 50));
+  });
+
+  testWidgets('Sold status badge on list does not cycle', (tester) async {
+    final db = FlipBinDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    final soldAt = DateTime(2026, 9, 15);
+    final id = await db.inventoryItemsDao.insertItem(
+      InventoryItemsCompanion.insert(
+        dateAdded: DateTime(2026, 1, 10),
+        itemDescription: 'Already Sold',
+        type: ItemType.dvd,
+        cost: 4.50,
+        status: ItemStatus.sold,
+        dateSold: Value(soldAt),
+      ),
+    );
+
+    final router = GoRouter(
+      initialLocation: '/inventory',
+      routes: [
+        GoRoute(
+          path: '/inventory',
+          builder: (_, __) => const InventoryListScreen(),
+          routes: [
+            GoRoute(
+              path: ':id',
+              builder: (_, __) => const Scaffold(body: Text('Edit Item')),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          databaseProvider.overrideWithValue(db),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
 
     expect(
       find.descendant(of: find.byType(StatusBadge), matching: find.text('Sold')),
       findsOneWidget,
     );
 
-    // Cycle Sold → Personal; dateSold must remain
-    final soldAt = updated.dateSold!;
     await tester.tap(
       find.descendant(of: find.byType(StatusBadge), matching: find.text('Sold')),
     );
     await tester.pumpAndSettle();
 
-    expect(navigatedToEdit, isFalse);
-    final personal = await db.inventoryItemsDao.getById(id);
-    expect(personal.status, equals(ItemStatus.personal));
-    expect(personal.dateSold, equals(soldAt));
+    // No onTap on Sold chip — tap falls through to row (may open Edit).
+    // Status must remain Sold; dateSold unchanged.
+    final still = await db.inventoryItemsDao.getById(id);
+    expect(still.status, equals(ItemStatus.sold));
+    expect(still.dateSold, equals(soldAt));
 
-    // Drain Drift stream cancel timers before ProviderScope unmounts.
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 50));
   });

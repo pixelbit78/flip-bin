@@ -111,10 +111,16 @@ enum ItemStatus {
     }
   }
 
-  /// Next status in cycle order: Active → Sold → Personal → Active.
+  /// List-chip cycle: Active ↔ Personal. Sold is locked (returns itself).
   ItemStatus get next {
-    const values = ItemStatus.values;
-    return values[(index + 1) % values.length];
+    switch (this) {
+      case ItemStatus.active:
+        return ItemStatus.personal;
+      case ItemStatus.personal:
+        return ItemStatus.active;
+      case ItemStatus.sold:
+        return ItemStatus.sold;
+    }
   }
 
   static ItemStatus fromLabel(String? label) {

@@ -195,15 +195,18 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
                                         const SizedBox(width: 8),
                                         StatusBadge(
                                           status: item.status,
-                                          onTap: () {
-                                            final next = item.status.next;
-                                            ref
-                                                .read(
-                                                    inventoryControllerProvider)
-                                                .updateInventoryItem(
-                                                  item.copyWith(status: next),
-                                                );
-                                          },
+                                          onTap: item.status == ItemStatus.sold
+                                              ? null
+                                              : () {
+                                                  final next = item.status.next;
+                                                  ref
+                                                      .read(
+                                                          inventoryControllerProvider)
+                                                      .updateInventoryItem(
+                                                        item.copyWith(
+                                                            status: next),
+                                                      );
+                                                },
                                         ),
                                       ],
                                     ),

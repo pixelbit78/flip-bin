@@ -46,10 +46,10 @@ void main() {
   });
 
   group('ItemStatus.next', () {
-    test('cycles Active → Sold → Personal → Active', () {
-      expect(ItemStatus.active.next, ItemStatus.sold);
-      expect(ItemStatus.sold.next, ItemStatus.personal);
+    test('cycles Active ↔ Personal; Sold stays Sold', () {
+      expect(ItemStatus.active.next, ItemStatus.personal);
       expect(ItemStatus.personal.next, ItemStatus.active);
+      expect(ItemStatus.sold.next, ItemStatus.sold);
     });
   });
 }
