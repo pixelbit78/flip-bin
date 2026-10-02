@@ -748,7 +748,7 @@ class _MonthlyExpensesCard extends StatelessWidget {
     final now = DateTime.now();
     final data = months ??
         [
-          for (var i = kDashboardMonthHistory - 1; i >= 0; i--)
+          for (var i = kDashboardVisibleMonthSlots - 1; i >= 0; i--)
             MonthlyExpenseTotal(
               month: DateTime(now.year, now.month - i, 1),
               total: 0,
@@ -986,7 +986,7 @@ class _MonthlyInventoryCard extends StatelessWidget {
     final now = DateTime.now();
     final data = months ??
         [
-          for (var i = kDashboardMonthHistory - 1; i >= 0; i--)
+          for (var i = kDashboardVisibleMonthSlots - 1; i >= 0; i--)
             MonthlyInventoryCount(
               month: DateTime(now.year, now.month - i, 1),
               count: 0,

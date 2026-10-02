@@ -142,6 +142,49 @@ class MonthlyInventoryCount {
   const MonthlyInventoryCount({required this.month, required this.count});
 }
 
+
+/// Calendar month starts from [start] through [end] (inclusive). Day is ignored.
+List<DateTime> _monthsFromTo(DateTime start, DateTime end) {
+  var cursor = DateTime(start.year, start.month, 1);
+  final endMonth = DateTime(end.year, end.month, 1);
+  final out = <DateTime>[];
+  while (!cursor.isAfter(endMonth)) {
+    out.add(cursor);
+    cursor = DateTime(cursor.year, cursor.month + 1, 1);
+  }
+  return out;
+}
+
+/// Resolves the contiguous month axis for Home monthly charts.
+///
+/// When [monthCount] is set, returns that many months ending at [anchor].
+/// Otherwise spans from the earliest data month through [anchor], but never
+/// fewer than [minMonthCount] months (zero-fill short history).
+List<DateTime> _resolveMonthStarts({
+  required DateTime anchor,
+  DateTime? earliest,
+  int? monthCount,
+  int minMonthCount = 6,
+}) {
+  final end = DateTime(anchor.year, anchor.month, 1);
+  if (monthCount != null) {
+    if (monthCount <= 0) return const [];
+    return [
+      for (var i = monthCount - 1; i >= 0; i--)
+        DateTime(end.year, end.month - i, 1),
+    ];
+  }
+  final minStart = DateTime(end.year, end.month - (minMonthCount - 1), 1);
+  final DateTime start;
+  if (earliest == null) {
+    start = minStart;
+  } else {
+    final earliestMonth = DateTime(earliest.year, earliest.month, 1);
+    start = earliestMonth.isBefore(minStart) ? earliestMonth : minStart;
+  }
+  return _monthsFromTo(start, end);
+}
+
 @DriftAccessor(tables: [InventoryItems])
 class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$InventoryItemsDaoMixin {
   InventoryItemsDao(super.db);
@@ -407,33 +450,42 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
     });
   }
 
-  /// Item counts by `dateSold` for the last [monthCount] calendar months.
-  /// Oldest month first; items without a sale date are excluded.
-  /// Home dashboard requests 24 months; default stays 6 for other callers.
+  /// Item counts by `dateSold`, oldest month first.
+  ///
+  /// By default includes every calendar month from the earliest sale through
+  /// [anchor] (now), zero-filling gaps, and at least [minMonthCount] months.
+  /// Pass [monthCount] to force a fixed trailing window instead.
+  /// Items without a sale date are excluded.
   Stream<List<MonthlyInventoryCount>> watchMonthlySoldCounts({
-    int monthCount = 6,
+    int? monthCount,
+    int minMonthCount = 6,
     DateTime? anchor,
   }) {
     return select(inventoryItems).watch().map((items) {
       return _monthlyInventoryCounts(
         items.map((item) => item.dateSold).whereType<DateTime>(),
         monthCount: monthCount,
+        minMonthCount: minMonthCount,
         anchor: anchor,
       );
     });
   }
 
-  /// Item counts by `dateAdded` for the last [monthCount] calendar months.
-  /// Oldest month first.
-  /// Home dashboard requests 24 months; default stays 6 for other callers.
+  /// Item counts by `dateAdded`, oldest month first.
+  ///
+  /// By default includes every calendar month from the earliest add through
+  /// [anchor] (now), zero-filling gaps, and at least [minMonthCount] months.
+  /// Pass [monthCount] to force a fixed trailing window instead.
   Stream<List<MonthlyInventoryCount>> watchMonthlyListedCounts({
-    int monthCount = 6,
+    int? monthCount,
+    int minMonthCount = 6,
     DateTime? anchor,
   }) {
     return select(inventoryItems).watch().map((items) {
       return _monthlyInventoryCounts(
         items.map((item) => item.dateAdded),
         monthCount: monthCount,
+        minMonthCount: minMonthCount,
         anchor: anchor,
       );
     });
@@ -441,19 +493,26 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
 
   static List<MonthlyInventoryCount> _monthlyInventoryCounts(
     Iterable<DateTime> dates, {
-    required int monthCount,
+    int? monthCount,
+    int minMonthCount = 6,
     DateTime? anchor,
   }) {
-    final now = anchor ?? DateTime.now();
-    final months = [
-      for (var i = monthCount - 1; i >= 0; i--)
-        DateTime(now.year, now.month - i, 1),
-    ];
+    final dateList = dates.toList();
+    DateTime? earliest;
+    for (final date in dateList) {
+      if (earliest == null || date.isBefore(earliest)) earliest = date;
+    }
+    final months = _resolveMonthStarts(
+      anchor: anchor ?? DateTime.now(),
+      earliest: earliest,
+      monthCount: monthCount,
+      minMonthCount: minMonthCount,
+    );
     return [
       for (final monthStart in months)
         MonthlyInventoryCount(
           month: monthStart,
-          count: dates
+          count: dateList
               .where((date) =>
                   date.year == monthStart.year &&
                   date.month == monthStart.month)
@@ -556,19 +615,27 @@ class ExpensesDao extends DatabaseAccessor<FlipBinDatabase> with _$ExpensesDaoMi
         );
   }
 
-  /// Monthly expense totals (`qty × unitPrice`) for the last [monthCount] calendar months
-  /// ending at [anchor] (defaults to now). Oldest month first.
-  /// Home dashboard requests 24 months; default stays 6 for other callers.
+  /// Monthly expense totals (`qty × unitPrice`), oldest month first.
+  ///
+  /// By default includes every calendar month from the earliest expense through
+  /// [anchor] (now), zero-filling gaps, and at least [minMonthCount] months.
+  /// Pass [monthCount] to force a fixed trailing window instead.
   Stream<List<MonthlyExpenseTotal>> watchMonthlyTotals({
-    int monthCount = 6,
+    int? monthCount,
+    int minMonthCount = 6,
     DateTime? anchor,
   }) {
     return select(expenses).watch().map((items) {
-      final now = anchor ?? DateTime.now();
-      final months = <DateTime>[];
-      for (var i = monthCount - 1; i >= 0; i--) {
-        months.add(DateTime(now.year, now.month - i, 1));
+      DateTime? earliest;
+      for (final e in items) {
+        if (earliest == null || e.date.isBefore(earliest)) earliest = e.date;
       }
+      final months = _resolveMonthStarts(
+        anchor: anchor ?? DateTime.now(),
+        earliest: earliest,
+        monthCount: monthCount,
+        minMonthCount: minMonthCount,
+      );
       return [
         for (final monthStart in months)
           MonthlyExpenseTotal(

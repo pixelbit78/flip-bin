@@ -527,29 +527,109 @@ void main() {
       expect(months[0].total, equals(0.0));
     });
 
-    test('watchMonthlyTotals monthCount 24 includes older months', () async {
+    test('watchMonthlyTotals default spans full history without cap', () async {
       final anchor = DateTime(2026, 9, 15);
       await db.expensesDao.insertExpense(
         ExpensesCompanion.insert(
-          date: DateTime(2025, 1, 10),
+          date: DateTime(2024, 3, 10),
           merchant: 'Old',
-          itemDescription: 'Jan 2025',
+          itemDescription: 'Mar 2024',
           quantity: const Value(1),
           unitPrice: 12.0,
           expenseType: ExpenseType.other,
         ),
       );
-
-      final months = await db.expensesDao
-          .watchMonthlyTotals(monthCount: 24, anchor: anchor)
-          .first;
-      expect(months.length, equals(24));
-      expect(months.first.month, equals(DateTime(2024, 10, 1)));
-      expect(months.last.month, equals(DateTime(2026, 9, 1)));
-      final jan2025 = months.firstWhere(
-        (m) => m.month == DateTime(2025, 1, 1),
+      await db.expensesDao.insertExpense(
+        ExpensesCompanion.insert(
+          date: DateTime(2026, 9, 2),
+          merchant: 'New',
+          itemDescription: 'Sep 2026',
+          quantity: const Value(2),
+          unitPrice: 5.0,
+          expenseType: ExpenseType.shipping,
+        ),
       );
-      expect(jan2025.total, equals(12.0));
+
+      final months =
+          await db.expensesDao.watchMonthlyTotals(anchor: anchor).first;
+      // Mar 2024 .. Sep 2026 = 31 months (no fixed 24/36 cap)
+      expect(months.length, equals(31));
+      expect(months.first.month, equals(DateTime(2024, 3, 1)));
+      expect(months.last.month, equals(DateTime(2026, 9, 1)));
+      expect(months.first.total, equals(12.0));
+      expect(months.last.total, equals(10.0));
+      // Gap month zero-filled
+      final apr2024 = months.firstWhere(
+        (m) => m.month == DateTime(2024, 4, 1),
+      );
+      expect(apr2024.total, equals(0.0));
+    });
+
+    test('watchMonthlyTotals empty data still returns min 6 months', () async {
+      final anchor = DateTime(2026, 9, 15);
+      final months =
+          await db.expensesDao.watchMonthlyTotals(anchor: anchor).first;
+      expect(months.length, equals(6));
+      expect(months.first.month, equals(DateTime(2026, 4, 1)));
+      expect(months.last.month, equals(DateTime(2026, 9, 1)));
+      expect(months.every((m) => m.total == 0.0), isTrue);
+    });
+  });
+
+  group('InventoryItemsDao monthly charts', () {
+    test('watchMonthlySoldCounts spans full sale history', () async {
+      final anchor = DateTime(2026, 9, 15);
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: DateTime(2023, 1, 1),
+          dateSold: Value(DateTime(2023, 6, 15)),
+          itemDescription: 'Old sale',
+          type: ItemType.game,
+          cost: 5.0,
+          status: ItemStatus.sold,
+        ),
+      );
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: DateTime(2026, 8, 1),
+          dateSold: Value(DateTime(2026, 9, 1)),
+          itemDescription: 'Recent sale',
+          type: ItemType.game,
+          cost: 5.0,
+          status: ItemStatus.sold,
+        ),
+      );
+
+      final months = await db.inventoryItemsDao
+          .watchMonthlySoldCounts(anchor: anchor)
+          .first;
+      expect(months.first.month, equals(DateTime(2023, 6, 1)));
+      expect(months.last.month, equals(DateTime(2026, 9, 1)));
+      // Jun 2023 .. Sep 2026 = 40 months
+      expect(months.length, equals(40));
+      expect(months.first.count, equals(1));
+      expect(months.last.count, equals(1));
+    });
+
+    test('watchMonthlyListedCounts spans full add history', () async {
+      final anchor = DateTime(2026, 9, 15);
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: DateTime(2022, 12, 20),
+          itemDescription: 'Ancient list',
+          type: ItemType.game,
+          cost: 3.0,
+          status: ItemStatus.active,
+        ),
+      );
+
+      final months = await db.inventoryItemsDao
+          .watchMonthlyListedCounts(anchor: anchor)
+          .first;
+      expect(months.first.month, equals(DateTime(2022, 12, 1)));
+      expect(months.last.month, equals(DateTime(2026, 9, 1)));
+      expect(months.length, greaterThan(24));
+      expect(months.first.count, equals(1));
     });
   });
 

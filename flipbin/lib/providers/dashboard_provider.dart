@@ -31,39 +31,37 @@ final sellThroughProvider = StreamProvider<SellThroughMetrics>((ref) {
   return db.inventoryItemsDao.watchSellThrough();
 });
 
-/// How many calendar months of history Home monthly charts load.
-///
-/// Charts keep a ~[kDashboardVisibleMonthSlots]-month viewport and scroll
-/// horizontally to older months.
-const int kDashboardMonthHistory = 24;
-
 /// Visible month slots in the Home monthly chart viewport (bar sizing).
+///
+/// Charts load full history from the earliest relevant date and scroll
+/// horizontally; this constant only controls how many months fit on screen.
 const int kDashboardVisibleMonthSlots = 6;
 
-/// Last [kDashboardMonthHistory] calendar months of expense totals
-/// (qty × unitPrice), oldest first.
+/// Full expense history by month (qty × unitPrice), oldest first.
+///
+/// Spans earliest expense through the current month (min 6 months).
 final monthlyExpensesProvider =
     StreamProvider<List<MonthlyExpenseTotal>>((ref) {
   final db = ref.watch(databaseProvider);
-  return db.expensesDao.watchMonthlyTotals(monthCount: kDashboardMonthHistory);
+  return db.expensesDao.watchMonthlyTotals();
 });
 
-/// Last [kDashboardMonthHistory] calendar months of sold-item counts by
-/// `dateSold`, oldest first.
+/// Full sold-item count history by `dateSold`, oldest first.
+///
+/// Spans earliest sale through the current month (min 6 months).
 final monthlySoldProvider =
     StreamProvider<List<MonthlyInventoryCount>>((ref) {
   final db = ref.watch(databaseProvider);
-  return db.inventoryItemsDao
-      .watchMonthlySoldCounts(monthCount: kDashboardMonthHistory);
+  return db.inventoryItemsDao.watchMonthlySoldCounts();
 });
 
-/// Last [kDashboardMonthHistory] calendar months of listed-item counts by
-/// `dateAdded`, oldest first.
+/// Full listed-item count history by `dateAdded`, oldest first.
+///
+/// Spans earliest add through the current month (min 6 months).
 final monthlyListedProvider =
     StreamProvider<List<MonthlyInventoryCount>>((ref) {
   final db = ref.watch(databaseProvider);
-  return db.inventoryItemsDao
-      .watchMonthlyListedCounts(monthCount: kDashboardMonthHistory);
+  return db.inventoryItemsDao.watchMonthlyListedCounts();
 });
 
 /// Exact currency for the Home **Total cost** KPI (`$1,847.32`).
