@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'connection/connection.dart' as impl;
 import 'package:flipbin/models/enums.dart';
+import 'package:flipbin/utils/barcode_normalize.dart';
 
 part 'database.g.dart';
 
@@ -204,8 +205,23 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
       query.where((tbl) => tbl.status.equalsValue(statusFilter));
     }
     if (searchQuery != null && searchQuery.trim().isNotEmpty) {
-      final term = '%${searchQuery.trim().toLowerCase()}%';
-      query.where((tbl) => tbl.itemDescription.lower().like(term));
+      final trimmed = searchQuery.trim();
+      final term = '%${trimmed.toLowerCase()}%';
+      query.where((tbl) {
+        Expression<bool> match = tbl.itemDescription.lower().like(term) |
+            tbl.barcode.lower().like(term);
+        // UPC leading-zero variants: also LIKE on significant digits.
+        if (BarcodeNormalize.isNumericUpcLike(trimmed)) {
+          final sig = BarcodeNormalize.significantDigits(trimmed);
+          if (sig != null) {
+            final sigTerm = '%$sig%';
+            if (sigTerm != term) {
+              match = match | tbl.barcode.lower().like(sigTerm);
+            }
+          }
+        }
+        return match;
+      });
     }
     if (soldWithinDays != null) {
       final cutoff = DateTime.now().subtract(Duration(days: soldWithinDays));
@@ -271,18 +287,32 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
 
   /// Active or personal inventory rows matching [barcode] (trimmed).
   /// Sold items are excluded so Save-as-sold removes them from this stream.
+  ///
+  /// Numeric UPC/EAN codes also match leading-zero variants via significant
+  /// digits (SQLite `ltrim` on the stored barcode).
   Stream<List<InventoryItem>> watchByBarcodeActiveOrPersonal(String barcode) {
     final normalized = barcode.trim();
     if (normalized.isEmpty) {
       return Stream.value(const []);
     }
     final query = select(inventoryItems)
-      ..where(
-        (tbl) =>
-            tbl.barcode.equals(normalized) &
+      ..where((tbl) {
+        Expression<bool> barcodeMatch = tbl.barcode.equals(normalized);
+        if (BarcodeNormalize.isNumericUpcLike(normalized)) {
+          final sig = BarcodeNormalize.significantDigits(normalized);
+          if (sig != null) {
+            // Digits-only sig is safe to embed (no quotes / SQL metacharacters).
+            barcodeMatch = barcodeMatch |
+                tbl.barcode.equals(sig) |
+                CustomExpression<bool>(
+                  "ltrim(COALESCE(barcode, ''), '0') = '$sig'",
+                );
+          }
+        }
+        return barcodeMatch &
             (tbl.status.equalsValue(ItemStatus.active) |
-                tbl.status.equalsValue(ItemStatus.personal)),
-      )
+                tbl.status.equalsValue(ItemStatus.personal));
+      })
       ..orderBy([(tbl) => OrderingTerm.desc(tbl.dateAdded)]);
     return query.watch();
   }

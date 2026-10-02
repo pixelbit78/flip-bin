@@ -156,6 +156,110 @@ void main() {
       expect(searchResults.first.itemDescription, equals('Super Mario Sunshine'));
     });
 
+    test('watchAll search matches barcode substring', () async {
+      final now = DateTime.now();
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: now,
+          itemDescription: 'Some Game',
+          type: ItemType.game,
+          cost: 5.0,
+          status: ItemStatus.active,
+          barcode: const Value('013388550265'),
+        ),
+      );
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: now,
+          itemDescription: 'Other Game',
+          type: ItemType.game,
+          cost: 5.0,
+          status: ItemStatus.active,
+          barcode: const Value('999999999999'),
+        ),
+      );
+
+      final results =
+          await db.inventoryItemsDao.watchAll(searchQuery: '133885502').first;
+      expect(results.length, equals(1));
+      expect(results.first.itemDescription, equals('Some Game'));
+    });
+
+    test('watchAll search matches barcode with leading-zero variants', () async {
+      final now = DateTime.now();
+      // Stored without leading zero; query with leading zero (bug report case).
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: now,
+          itemDescription: 'Zero Variant Item',
+          type: ItemType.game,
+          cost: 5.0,
+          status: ItemStatus.active,
+          barcode: const Value('13388550265'),
+        ),
+      );
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: now,
+          itemDescription: 'Unrelated',
+          type: ItemType.dvd,
+          cost: 3.0,
+          status: ItemStatus.active,
+          barcode: const Value('999999999999'),
+        ),
+      );
+
+      final withLeading = await db.inventoryItemsDao
+          .watchAll(searchQuery: '013388550265')
+          .first;
+      expect(withLeading.length, equals(1));
+      expect(withLeading.first.itemDescription, equals('Zero Variant Item'));
+
+      // Reverse: stored with leading zero; query without.
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: now,
+          itemDescription: 'Padded UPC Item',
+          type: ItemType.game,
+          cost: 7.0,
+          status: ItemStatus.active,
+          barcode: const Value('013388550265'),
+        ),
+      );
+      final withoutLeading = await db.inventoryItemsDao
+          .watchAll(searchQuery: '13388550265')
+          .first;
+      expect(
+        withoutLeading.map((e) => e.itemDescription).toSet(),
+        equals({'Zero Variant Item', 'Padded UPC Item'}),
+      );
+    });
+
+    test('watchByBarcodeActiveOrPersonal matches leading-zero variants', () async {
+      final now = DateTime.now();
+      await db.inventoryItemsDao.insertItem(
+        InventoryItemsCompanion.insert(
+          dateAdded: now,
+          itemDescription: 'Stored No Zero',
+          type: ItemType.game,
+          cost: 5.0,
+          status: ItemStatus.active,
+          barcode: const Value('13388550265'),
+        ),
+      );
+
+      final matches = await db.inventoryItemsDao
+          .watchByBarcodeActiveOrPersonal('013388550265')
+          .first;
+      expect(matches.length, equals(1));
+      expect(matches.first.itemDescription, equals('Stored No Zero'));
+
+      final reverse = await db.inventoryItemsDao
+          .watchByBarcodeActiveOrPersonal('13388550265')
+          .first;
+      expect(reverse.length, equals(1));
+    });
+
     test('countByStatus returns correct count', () async {
       final now = DateTime.now();
       await db.inventoryItemsDao.insertItem(
