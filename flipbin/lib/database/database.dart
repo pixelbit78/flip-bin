@@ -146,7 +146,16 @@ class MonthlyInventoryCount {
 class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$InventoryItemsDaoMixin {
   InventoryItemsDao(super.db);
 
-  Stream<List<InventoryItem>> watchAll({ItemStatus? statusFilter, String? searchQuery}) {
+  Stream<List<InventoryItem>> watchAll({
+    ItemStatus? statusFilter,
+    String? searchQuery,
+    int? ageMinDays,
+    int? ageMaxDays,
+    int? soldWithinDays,
+    int? addedWithinDays,
+    DateTime? soldMonth,
+    DateTime? addedMonth,
+  }) {
     final query = select(inventoryItems);
     if (statusFilter != null) {
       query.where((tbl) => tbl.status.equalsValue(statusFilter));
@@ -155,8 +164,50 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
       final term = '%${searchQuery.trim().toLowerCase()}%';
       query.where((tbl) => tbl.itemDescription.lower().like(term));
     }
+    if (soldWithinDays != null) {
+      final cutoff = DateTime.now().subtract(Duration(days: soldWithinDays));
+      query.where(
+        (tbl) =>
+            tbl.dateSold.isNotNull() &
+            tbl.dateSold.isBiggerOrEqualValue(cutoff),
+      );
+    }
+    if (addedWithinDays != null) {
+      final cutoff = DateTime.now().subtract(Duration(days: addedWithinDays));
+      query.where((tbl) => tbl.dateAdded.isBiggerOrEqualValue(cutoff));
+    }
+    if (soldMonth != null) {
+      final start = DateTime(soldMonth.year, soldMonth.month, 1);
+      final end = DateTime(soldMonth.year, soldMonth.month + 1, 1);
+      query.where(
+        (tbl) =>
+            tbl.dateSold.isNotNull() &
+            tbl.dateSold.isBiggerOrEqualValue(start) &
+            tbl.dateSold.isSmallerThanValue(end),
+      );
+    }
+    if (addedMonth != null) {
+      final start = DateTime(addedMonth.year, addedMonth.month, 1);
+      final end = DateTime(addedMonth.year, addedMonth.month + 1, 1);
+      query.where(
+        (tbl) =>
+            tbl.dateAdded.isBiggerOrEqualValue(start) &
+            tbl.dateAdded.isSmallerThanValue(end),
+      );
+    }
     query.orderBy([(tbl) => OrderingTerm.desc(tbl.dateAdded)]);
-    return query.watch();
+    final stream = query.watch();
+    // Age band matches [watchAgingBuckets] (post-filter on dateAdded age).
+    if (ageMinDays == null && ageMaxDays == null) return stream;
+    return stream.map((items) {
+      final now = DateTime.now();
+      return items.where((item) {
+        final age = now.difference(item.dateAdded).inDays;
+        if (ageMinDays != null && age < ageMinDays) return false;
+        if (ageMaxDays != null && age > ageMaxDays) return false;
+        return true;
+      }).toList();
+    });
   }
 
   Future<InventoryItem> getById(int id) {

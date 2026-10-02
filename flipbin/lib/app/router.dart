@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flipbin/models/enums.dart';
+import 'package:flipbin/models/drilldown_query.dart';
 import 'package:flipbin/screens/dashboard/dashboard_screen.dart';
-
+import 'package:flipbin/screens/drilldown/expense_drilldown_screen.dart';
+import 'package:flipbin/screens/drilldown/inventory_drilldown_screen.dart';
 import 'package:flipbin/screens/expenses/expense_detail_screen.dart';
 import 'package:flipbin/screens/expenses/expense_list_screen.dart';
 import 'package:flipbin/screens/inventory/inventory_list_screen.dart';
 import 'package:flipbin/screens/inventory/item_detail_screen.dart';
-
 import 'package:flipbin/screens/scanner/scanner_screen.dart';
 import 'package:flipbin/screens/settings/settings_screen.dart';
 import 'package:flipbin/services/barcode_lookup_service.dart';
@@ -29,6 +30,26 @@ class FlipBinRouter {
           GoRoute(
             path: '/',
             builder: (context, state) => const DashboardScreen(),
+            routes: [
+              GoRoute(
+                path: 'drilldown/inventory',
+                builder: (context, state) {
+                  final q = DrillDownQuery.fromQueryParameters(
+                    state.uri.queryParameters,
+                  );
+                  return InventoryDrillDownScreen(initialQuery: q);
+                },
+              ),
+              GoRoute(
+                path: 'drilldown/expenses',
+                builder: (context, state) {
+                  final q = ExpenseDrillDownQuery.fromQueryParameters(
+                    state.uri.queryParameters,
+                  );
+                  return ExpenseDrillDownScreen(query: q);
+                },
+              ),
+            ],
           ),
           GoRoute(
             path: '/inventory',
@@ -123,7 +144,9 @@ class _ScaffoldWithNavBarState extends ConsumerState<ScaffoldWithNavBar>
   }
 
   static int _calculateSelectedIndex(BuildContext context) {
-    final location = GoRouterState.of(context).uri.toString();
+    final location = GoRouterState.of(context).uri.path;
+    // Home chart drill-downs stay under the Home tab (not Inventory/Expenses).
+    if (location.startsWith('/drilldown')) return 0;
     if (location.startsWith('/inventory')) return 1;
     if (location.startsWith('/expenses')) return 2;
     if (location.startsWith('/settings')) return 3;

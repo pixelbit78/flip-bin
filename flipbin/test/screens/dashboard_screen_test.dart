@@ -244,4 +244,95 @@ void main() {
     expect(formatDashboardTotalCost(87), '\$87.00');
     expect(formatDashboardTotalCost(0), '\$0.00');
   });
+
+  testWidgets('aging 30–59 taps drill-down; 90d+ does not', (tester) async {
+    String? navigatedRoute;
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) => const DashboardScreen(),
+          routes: [
+            GoRoute(
+              path: 'drilldown/inventory',
+              builder: (context, state) {
+                navigatedRoute = state.uri.toString();
+                return const Scaffold(body: Text('Inv Drill'));
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: dashboardOverrides(),
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('30–59d'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('30–59d'));
+    await tester.pumpAndSettle();
+    expect(navigatedRoute, isNotNull);
+    expect(navigatedRoute, contains('/drilldown/inventory'));
+    expect(navigatedRoute, contains('ageMin=30'));
+    expect(navigatedRoute, contains('ageMax=59'));
+    expect(navigatedRoute, contains('status=Active'));
+
+    // Pop back to dashboard for the 90d+ no-op check.
+    router.pop();
+    await tester.pumpAndSettle();
+    navigatedRoute = null;
+    await tester.ensureVisible(find.text('90d+'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('90d+'));
+    await tester.pumpAndSettle();
+    expect(navigatedRoute, isNull);
+  });
+
+  testWidgets('sell-through Sold row opens Sold 90-day drill-down',
+      (tester) async {
+    String? navigatedRoute;
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) => const DashboardScreen(),
+          routes: [
+            GoRoute(
+              path: 'drilldown/inventory',
+              builder: (context, state) {
+                navigatedRoute = state.uri.toString();
+                return const Scaffold(body: Text('Inv Drill'));
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: dashboardOverrides(),
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // "Sold" appears as sell-through row label.
+    await tester.ensureVisible(find.text('Sold'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sold'));
+    await tester.pumpAndSettle();
+    expect(navigatedRoute, contains('/drilldown/inventory'));
+    expect(navigatedRoute, contains('status=Sold'));
+    expect(navigatedRoute, contains('soldWithinDays=90'));
+  });
+
 }

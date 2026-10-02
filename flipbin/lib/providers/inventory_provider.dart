@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flipbin/database/database.dart';
+import 'package:flipbin/models/drilldown_query.dart';
 import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/database_provider.dart';
 
@@ -9,7 +10,44 @@ class InventoryFilter {
   final ItemStatus? statusFilter;
   final String? searchQuery;
 
-  const InventoryFilter({this.statusFilter, this.searchQuery});
+  /// Inclusive age band (days since dateAdded). Matching [AgingBuckets].
+  final int? ageMinDays;
+  final int? ageMaxDays;
+
+  /// Keep items whose `dateSold` is on/after now − this many days.
+  final int? soldWithinDays;
+
+  /// Keep items whose `dateAdded` is on/after now − this many days.
+  final int? addedWithinDays;
+
+  /// Calendar month for `dateSold` (day ignored).
+  final DateTime? soldMonth;
+
+  /// Calendar month for `dateAdded` (day ignored).
+  final DateTime? addedMonth;
+
+  const InventoryFilter({
+    this.statusFilter,
+    this.searchQuery,
+    this.ageMinDays,
+    this.ageMaxDays,
+    this.soldWithinDays,
+    this.addedWithinDays,
+    this.soldMonth,
+    this.addedMonth,
+  });
+
+  factory InventoryFilter.fromDrillDown(DrillDownQuery q) {
+    return InventoryFilter(
+      statusFilter: q.status,
+      ageMinDays: q.ageMinDays,
+      ageMaxDays: q.ageMaxDays,
+      soldWithinDays: q.soldWithinDays,
+      addedWithinDays: q.addedWithinDays,
+      soldMonth: q.soldMonth,
+      addedMonth: q.addedMonth,
+    );
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -17,10 +55,25 @@ class InventoryFilter {
       other is InventoryFilter &&
           runtimeType == other.runtimeType &&
           statusFilter == other.statusFilter &&
-          searchQuery == other.searchQuery;
+          searchQuery == other.searchQuery &&
+          ageMinDays == other.ageMinDays &&
+          ageMaxDays == other.ageMaxDays &&
+          soldWithinDays == other.soldWithinDays &&
+          addedWithinDays == other.addedWithinDays &&
+          soldMonth == other.soldMonth &&
+          addedMonth == other.addedMonth;
 
   @override
-  int get hashCode => Object.hash(statusFilter, searchQuery);
+  int get hashCode => Object.hash(
+        statusFilter,
+        searchQuery,
+        ageMinDays,
+        ageMaxDays,
+        soldWithinDays,
+        addedWithinDays,
+        soldMonth,
+        addedMonth,
+      );
 }
 
 /// Reactive list of inventory items filtered by status and search query.
@@ -30,6 +83,12 @@ final inventoryListProvider =
   return db.inventoryItemsDao.watchAll(
     statusFilter: filter.statusFilter,
     searchQuery: filter.searchQuery,
+    ageMinDays: filter.ageMinDays,
+    ageMaxDays: filter.ageMaxDays,
+    soldWithinDays: filter.soldWithinDays,
+    addedWithinDays: filter.addedWithinDays,
+    soldMonth: filter.soldMonth,
+    addedMonth: filter.addedMonth,
   );
 });
 

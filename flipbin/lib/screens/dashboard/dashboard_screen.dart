@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:flipbin/database/database.dart';
+import 'package:flipbin/models/drilldown_query.dart';
 import 'package:flipbin/providers/dashboard_provider.dart';
 import 'package:flipbin/widgets/flipbin_wordmark.dart';
 
@@ -22,6 +23,16 @@ class DashboardScreen extends ConsumerWidget {
   static const _accent = Color(0xFF2196F3);
   static const _green = Color(0xFF4CAF50);
   static const _muted = Color(0x8AFFFFFF); // white54
+
+  static void pushInventoryDrillDown(BuildContext context, DrillDownQuery q) {
+    context.push(q.toLocation(path: '/drilldown/inventory'));
+  }
+
+  static void pushExpenseDrillDown(BuildContext context, DateTime month) {
+    final q = ExpenseDrillDownQuery.forMonth(month);
+    context.push(q.toLocation());
+  }
+
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -75,6 +86,10 @@ class DashboardScreen extends ConsumerWidget {
               color: DashboardScreen._green,
               currentColor: const Color(0xFF81C784),
               months: soldMonthsAsync.valueOrNull,
+              onMonthTap: (month) => DashboardScreen.pushInventoryDrillDown(
+                context,
+                DrillDownQuery.monthlySold(month),
+              ),
             ),
             const SizedBox(height: 12),
             _MonthlyInventoryCard(
@@ -83,6 +98,10 @@ class DashboardScreen extends ConsumerWidget {
               color: const Color(0xFF00897B),
               currentColor: const Color(0xFF4DB6AC),
               months: listedMonthsAsync.valueOrNull,
+              onMonthTap: (month) => DashboardScreen.pushInventoryDrillDown(
+                context,
+                DrillDownQuery.monthlyListed(month),
+              ),
             ),
           ],
         ),
@@ -406,6 +425,18 @@ class _AgingCapitalCard extends StatelessWidget {
               bucket: data.asList[i],
               color: _colors[i],
               maxAmount: maxAmt,
+              // Ship 30–59 and 60–89 only; 90d+ intentionally non-tappable.
+              onTap: i == 0
+                  ? () => DashboardScreen.pushInventoryDrillDown(
+                        context,
+                        DrillDownQuery.aging(minDays: 30, maxDays: 59),
+                      )
+                  : i == 1
+                      ? () => DashboardScreen.pushInventoryDrillDown(
+                            context,
+                            DrillDownQuery.aging(minDays: 60, maxDays: 89),
+                          )
+                      : null,
             ),
           ],
         ],
@@ -419,11 +450,13 @@ class _AgingRow extends StatelessWidget {
     required this.bucket,
     required this.color,
     required this.maxAmount,
+    this.onTap,
   });
 
   final AgingBucket bucket;
   final Color color;
   final double maxAmount;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -431,7 +464,7 @@ class _AgingRow extends StatelessWidget {
         ? 0.0
         : (bucket.totalCostTimesQty / maxAmount).clamp(0.0, 1.0);
 
-    return Row(
+    final row = Row(
       children: [
         SizedBox(
           width: 64,
@@ -495,6 +528,19 @@ class _AgingRow extends StatelessWidget {
         ),
       ],
     );
+
+    if (onTap == null) return row;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: row,
+        ),
+      ),
+    );
   }
 }
 
@@ -517,38 +563,58 @@ class _SellThroughCard extends StatelessWidget {
         );
     final pct = (m.rate * 100).round();
 
+    void openListed() => DashboardScreen.pushInventoryDrillDown(
+          context,
+          DrillDownQuery.sellThroughListed(windowDays: m.windowDays),
+        );
+    void openSold() => DashboardScreen.pushInventoryDrillDown(
+          context,
+          DrillDownQuery.sellThroughSold(windowDays: m.windowDays),
+        );
+    void openStillActive() => DashboardScreen.pushInventoryDrillDown(
+          context,
+          DrillDownQuery.sellThroughStillActive(windowDays: m.windowDays),
+        );
+
     return _DashCard(
       title: 'Sell-through',
       badge: '${m.windowDays} days',
       child: Row(
         children: [
-          SizedBox(
-            width: 118,
-            height: 118,
-            child: CustomPaint(
-              painter: _SellThroughRingPainter(rate: m.rate),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '$pct%',
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w700,
-                        color: DashboardScreen._green,
-                        height: 1,
-                      ),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: openStillActive,
+              borderRadius: BorderRadius.circular(60),
+              child: SizedBox(
+                width: 118,
+                height: 118,
+                child: CustomPaint(
+                  painter: _SellThroughRingPainter(rate: m.rate),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '$pct%',
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w700,
+                            color: DashboardScreen._green,
+                            height: 1,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        const Text(
+                          'sold',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: DashboardScreen._muted,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 3),
-                    const Text(
-                      'sold',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: DashboardScreen._muted,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -557,15 +623,24 @@ class _SellThroughCard extends StatelessWidget {
           Expanded(
             child: Column(
               children: [
-                _StStat(label: 'Listed', value: '${m.listed}'),
+                _StStat(
+                  label: 'Listed',
+                  value: '${m.listed}',
+                  onTap: openListed,
+                ),
                 const Divider(height: 1, color: Color(0x0FFFFFFF)),
                 _StStat(
                   label: 'Sold',
                   value: '${m.sold}',
                   valueColor: DashboardScreen._green,
+                  onTap: openSold,
                 ),
                 const Divider(height: 1, color: Color(0x0FFFFFFF)),
-                _StStat(label: 'Still active', value: '${m.stillActive}'),
+                _StStat(
+                  label: 'Still active',
+                  value: '${m.stillActive}',
+                  onTap: openStillActive,
+                ),
               ],
             ),
           ),
@@ -580,15 +655,17 @@ class _StStat extends StatelessWidget {
     required this.label,
     required this.value,
     this.valueColor,
+    this.onTap,
   });
 
   final String label;
   final String value;
   final Color? valueColor;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         children: [
@@ -610,6 +687,11 @@ class _StStat extends StatelessWidget {
           ),
         ],
       ),
+    );
+    if (onTap == null) return row;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(onTap: onTap, child: row),
     );
   }
 }
@@ -678,9 +760,26 @@ class _MonthlyExpensesCard extends StatelessWidget {
       badge: yearLabel,
       child: SizedBox(
         height: 150,
-        child: CustomPaint(
-          painter: _MonthlyBarsPainter(months: data, now: now),
-          child: const SizedBox.expand(),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapUp: (details) {
+                final month = _MonthlyBarsPainter.hitTestMonth(
+                  details.localPosition,
+                  constraints.biggest,
+                  data,
+                );
+                if (month != null) {
+                  DashboardScreen.pushExpenseDrillDown(context, month);
+                }
+              },
+              child: CustomPaint(
+                painter: _MonthlyBarsPainter(months: data, now: now),
+                child: const SizedBox.expand(),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -814,6 +913,23 @@ class _MonthlyBarsPainter extends CustomPainter {
     return '\$${v.round()}';
   }
 
+  /// Returns the month under [localPos], or null if outside a bar slot.
+  static DateTime? hitTestMonth(
+    Offset localPos,
+    Size size,
+    List<MonthlyExpenseTotal> months,
+  ) {
+    if (months.isEmpty) return null;
+    const leftGutter = 36.0;
+    if (localPos.dx < leftGutter) return null;
+    final chartW = size.width - leftGutter;
+    final n = months.length;
+    final slot = chartW / n;
+    final index = ((localPos.dx - leftGutter) / slot).floor();
+    if (index < 0 || index >= n) return null;
+    return months[index].month;
+  }
+
   @override
   bool shouldRepaint(covariant _MonthlyBarsPainter oldDelegate) =>
       oldDelegate.months != months || oldDelegate.now != now;
@@ -828,6 +944,7 @@ class _MonthlyInventoryCard extends StatelessWidget {
     required this.color,
     required this.currentColor,
     required this.months,
+    this.onMonthTap,
   });
 
   final String title;
@@ -835,6 +952,7 @@ class _MonthlyInventoryCard extends StatelessWidget {
   final Color color;
   final Color currentColor;
   final List<MonthlyInventoryCount>? months;
+  final ValueChanged<DateTime>? onMonthTap;
 
   @override
   Widget build(BuildContext context) {
@@ -856,14 +974,31 @@ class _MonthlyInventoryCard extends StatelessWidget {
       subtitle: subtitle,
       child: SizedBox(
         height: 150,
-        child: CustomPaint(
-          painter: _MonthlyInventoryBarsPainter(
-            months: data,
-            now: now,
-            color: color,
-            currentColor: currentColor,
-          ),
-          child: const SizedBox.expand(),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapUp: onMonthTap == null
+                  ? null
+                  : (details) {
+                      final month = _MonthlyInventoryBarsPainter.hitTestMonth(
+                        details.localPosition,
+                        constraints.biggest,
+                        data,
+                      );
+                      if (month != null) onMonthTap!(month);
+                    },
+              child: CustomPaint(
+                painter: _MonthlyInventoryBarsPainter(
+                  months: data,
+                  now: now,
+                  color: color,
+                  currentColor: currentColor,
+                ),
+                child: const SizedBox.expand(),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -990,6 +1125,23 @@ class _MonthlyInventoryBarsPainter extends CustomPainter {
                 ? 5
                 : 10;
     return step * base;
+  }
+
+  /// Returns the month under [localPos], or null if outside a bar slot.
+  static DateTime? hitTestMonth(
+    Offset localPos,
+    Size size,
+    List<MonthlyInventoryCount> months,
+  ) {
+    if (months.isEmpty) return null;
+    const leftGutter = 36.0;
+    if (localPos.dx < leftGutter) return null;
+    final chartW = size.width - leftGutter;
+    final n = months.length;
+    final slot = chartW / n;
+    final index = ((localPos.dx - leftGutter) / slot).floor();
+    if (index < 0 || index >= n) return null;
+    return months[index].month;
   }
 
   @override
