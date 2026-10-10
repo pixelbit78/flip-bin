@@ -63,7 +63,7 @@ class _SellQuantitySheetState extends State<SellQuantitySheet> {
     final dateText =
         '${today ? 'Today · ' : ''}${DateFormat('yyyy-MM-dd').format(_date)}';
     const label = TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600);
-    return SafeArea(
+    return minTapTheme(context, SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
             16, 12, 16, 16 + MediaQuery.of(context).viewInsets.bottom),
@@ -178,8 +178,35 @@ class _SellQuantitySheetState extends State<SellQuantitySheet> {
           ],
         ),
       ),
-    );
+    ));
   }
+}
+
+/// BUG-05: every interactive control in the sell sheets is ≥ 44×44 px.
+const double kMinTap = 44;
+const Size _kMin = Size(kMinTap, kMinTap);
+
+Widget minTapTheme(BuildContext context, Widget child) {
+  final t = Theme.of(context);
+  const big = ButtonStyle(
+    minimumSize: WidgetStatePropertyAll(_kMin),
+    tapTargetSize: MaterialTapTargetSize.padded,
+  );
+  return Theme(
+    data: t.copyWith(
+      materialTapTargetSize: MaterialTapTargetSize.padded,
+      visualDensity: VisualDensity.standard,
+      iconButtonTheme: IconButtonThemeData(style: big.merge(t.iconButtonTheme.style)),
+      textButtonTheme: TextButtonThemeData(style: big.merge(t.textButtonTheme.style)),
+      outlinedButtonTheme:
+          OutlinedButtonThemeData(style: big.merge(t.outlinedButtonTheme.style)),
+      elevatedButtonTheme:
+          ElevatedButtonThemeData(style: big.merge(t.elevatedButtonTheme.style)),
+      segmentedButtonTheme:
+          SegmentedButtonThemeData(style: big.merge(t.segmentedButtonTheme.style)),
+    ),
+    child: child,
+  );
 }
 
 /// Inline "How many sold?" row for scanner quick-add (Status = Sold, qty > 1).
@@ -191,7 +218,9 @@ class HowManySoldRow extends StatelessWidget {
       {super.key, required this.qty, required this.value, required this.onChanged});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => minTapTheme(context, _build(context));
+
+  Widget _build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
