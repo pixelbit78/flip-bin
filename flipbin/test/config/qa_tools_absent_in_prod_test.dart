@@ -4,11 +4,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../support/env_skip.dart';
 import 'package:flipbin/config/env.dart';
 import 'package:flipbin/screens/settings/qa_settings_screen.dart';
 import 'package:flipbin/widgets/env_banner.dart';
 
-void main() {
+void main() => group('', _tests, skip: prodOnlySkip);
+
+void _tests() {
   test('default env is prod', () {
     expect(kFlipBinEnv, 'prod');
     expect(kIsProd, isTrue);
@@ -17,7 +21,8 @@ void main() {
   });
 
   testWidgets('no QA banner in prod', (tester) async {
-    await tester.pumpWidget(const MaterialApp(home: EnvBanner(child: Text('app'))));
+    await tester
+        .pumpWidget(const MaterialApp(home: EnvBanner(child: Text('app'))));
     expect(find.byKey(const Key('qaBanner')), findsNothing);
   });
 

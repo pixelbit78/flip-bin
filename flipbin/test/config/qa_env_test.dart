@@ -28,7 +28,8 @@ void main() {
   }, skip: skip);
 
   testWidgets('QA banner shown (QZ-01)', (tester) async {
-    await tester.pumpWidget(const MaterialApp(home: EnvBanner(child: Text('app'))));
+    await tester
+        .pumpWidget(const MaterialApp(home: EnvBanner(child: Text('app'))));
     expect(find.text('QA build — local data only, not connected to Google'),
         findsOneWidget);
   }, skip: skip != null);

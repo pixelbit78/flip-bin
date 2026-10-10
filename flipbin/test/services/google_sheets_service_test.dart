@@ -6,9 +6,13 @@ import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/services/google_sheets_service.dart';
 
+import '../support/env_skip.dart';
+
 class MockSheetsClient extends Mock implements SheetsClient {}
 
-void main() {
+void main() => group('', _tests, skip: prodOnlySkip);
+
+void _tests() {
   late MockSheetsClient mockClient;
   late GoogleSheetsService service;
 
@@ -71,8 +75,7 @@ void main() {
         .thenAnswer((_) async => null);
     when(() => mockClient.createSpreadsheet('FlipBin Export', any()))
         .thenAnswer((_) async => 'new-sheet-id-123');
-    when(() => mockClient.clearSheet(any(), any()))
-        .thenAnswer((_) async {});
+    when(() => mockClient.clearSheet(any(), any())).thenAnswer((_) async {});
     when(() => mockClient.batchUpdateValues(any(), any()))
         .thenAnswer((_) async {});
 
@@ -91,16 +94,17 @@ void main() {
 
     await service.syncToSheets(items, expenses);
 
-    verify(() => mockClient.createSpreadsheet('FlipBin Export', ['Inventory', 'Expenses'])).called(1);
-    verify(() => mockClient.batchUpdateValues('new-sheet-id-123', any())).called(1);
+    verify(() => mockClient.createSpreadsheet(
+        'FlipBin Export', ['Inventory', 'Expenses'])).called(1);
+    verify(() => mockClient.batchUpdateValues('new-sheet-id-123', any()))
+        .called(1);
   });
 
   test('syncToSheets clears and writes data on subsequent sync', () async {
     const existingId = 'existing-sheet-456';
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => existingId);
-    when(() => mockClient.clearSheet(any(), any()))
-        .thenAnswer((_) async {});
+    when(() => mockClient.clearSheet(any(), any())).thenAnswer((_) async {});
     when(() => mockClient.batchUpdateValues(any(), any()))
         .thenAnswer((_) async {});
 
@@ -157,7 +161,8 @@ void main() {
     verify(() => mockClient.batchUpdateValues(renamedId, any())).called(1);
   });
 
-  test('export recovers when prior file ID is deleted and name missing', () async {
+  test('export recovers when prior file ID is deleted and name missing',
+      () async {
     const staleId = 'gone-id';
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => null);
@@ -175,8 +180,8 @@ void main() {
     );
 
     expect(id, equals('fresh-id'));
-    verify(() => mockClient.createSpreadsheet('FlipBin Export', ['Inventory', 'Expenses']))
-        .called(1);
+    verify(() => mockClient.createSpreadsheet(
+        'FlipBin Export', ['Inventory', 'Expenses'])).called(1);
     verify(() => mockClient.batchUpdateValues('fresh-id', any())).called(1);
   });
 
@@ -191,7 +196,8 @@ void main() {
     verifyNever(() => mockClient.batchUpdateValues(any(), any()));
   });
 
-  test('importFromSheets parses inventory and expense rows accurately', () async {
+  test('importFromSheets parses inventory and expense rows accurately',
+      () async {
     const sheetId = 'test-sheet-789';
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => sheetId);
@@ -296,7 +302,8 @@ void main() {
     verify(() => mockClient.getValues(renamedId, 'Inventory!A1:P')).called(1);
   });
 
-  test('import throws when spreadsheet missing by name and stored ID', () async {
+  test('import throws when spreadsheet missing by name and stored ID',
+      () async {
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => null);
     when(() => mockClient.getValues('stale', 'Inventory!A1'))
@@ -368,7 +375,8 @@ void main() {
     expect(data.expenses, isEmpty);
   });
 
-  test('resolveExportSpreadsheet prefers name then creates when missing', () async {
+  test('resolveExportSpreadsheet prefers name then creates when missing',
+      () async {
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => null);
     when(() => mockClient.getValues('stale', 'Inventory!A1'))
