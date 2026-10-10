@@ -4,6 +4,16 @@ import 'package:flutter/material.dart';
 class FlipBinTheme {
   FlipBinTheme._();
 
+  /// BUG-05/06: minimum tap target for every control. Web on desktop defaults
+  /// to compact density + shrink-wrapped targets (32–40 px); pin both so no
+  /// screen can render a tappable smaller than 44×44.
+  static const double minTap = 44;
+  static const Size _minSize = Size(minTap, minTap);
+  static const ButtonStyle _minTapStyle = ButtonStyle(
+    minimumSize: WidgetStatePropertyAll(_minSize),
+    tapTargetSize: MaterialTapTargetSize.padded,
+  );
+
   static ThemeData get dark {
     const primaryBlue = Color(0xFF2196F3);
     const surfaceColor = Color(0xFF1A1D23);
@@ -17,6 +27,13 @@ class FlipBinTheme {
     );
 
     return ThemeData(
+      visualDensity: VisualDensity.standard,
+      materialTapTargetSize: MaterialTapTargetSize.padded,
+      iconButtonTheme: const IconButtonThemeData(style: _minTapStyle),
+      textButtonTheme: const TextButtonThemeData(style: _minTapStyle),
+      outlinedButtonTheme: const OutlinedButtonThemeData(style: _minTapStyle),
+      filledButtonTheme: const FilledButtonThemeData(style: _minTapStyle),
+      segmentedButtonTheme: const SegmentedButtonThemeData(style: _minTapStyle),
       fontFamily: 'Roboto', // bundled (SPEC §12.8)
       useMaterial3: true,
       brightness: Brightness.dark,
@@ -64,6 +81,8 @@ class FlipBinTheme {
             borderRadius: BorderRadius.circular(8),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          minimumSize: _minSize,
+          tapTargetSize: MaterialTapTargetSize.padded,
         ),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
