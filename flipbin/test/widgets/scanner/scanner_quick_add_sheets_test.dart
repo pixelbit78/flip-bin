@@ -132,6 +132,45 @@ void main() {
     });
   });
 
+  group('quantity quick-add', () {
+    testWidgets('qty 5, Sold, How many sold 3 → Active ×2 + Sold ×3',
+        (tester) async {
+      await tester.pumpWidget(
+        wrap(const ScannerInventoryQuickAddSheet(scan: _scan)),
+      );
+      for (var i = 0; i < 4; i++) {
+        await tester.tap(find.byKey(const Key('scannerInventoryQtyPlus')));
+        await tester.pump();
+      }
+      await tester.pump();
+      expect(find.text('Cost per item *'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('scannerInventoryCost')), '2');
+      await tester.pump();
+      expect(find.byKey(const Key('scannerInventoryTotalCost')), findsOneWidget);
+      expect(find.text('\$ 10.00'), findsOneWidget);
+      await tester.tap(find.text('Sold'));
+      await tester.pump();
+      expect(find.text('How many sold?'), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('howManySoldMinus')));
+      await tester.tap(find.byKey(const Key('howManySoldMinus')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('howManySoldMinus')));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const Key('scannerQuickAddOk')));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      });
+      await tester.pump();
+      final rows = await tester.runAsync(
+          () => db.inventoryItemsDao.getAllForExport()) ?? const <InventoryItem>[];
+      expect(rows, hasLength(2));
+      final active = rows.firstWhere((r) => r.status == ItemStatus.active);
+      final sold = rows.firstWhere((r) => r.status == ItemStatus.sold);
+      expect([active.quantity, active.cost], [2, 4.0]);
+      expect([sold.quantity, sold.cost, sold.parentId], [3, 6.0, active.id]);
+    });
+  });
+
   group('quick-add save paths (controllers)', () {
     test('inventory Active save from scan metadata', () async {
       final container = ProviderContainer(
