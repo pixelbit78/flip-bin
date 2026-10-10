@@ -19,6 +19,7 @@ class InventoryFilter {
 
   /// Keep items whose `dateAdded` is on/after now − this many days.
   final int? addedWithinDays;
+  final bool sellThroughCohort;
 
   /// Calendar month for `dateSold` (day ignored).
   final DateTime? soldMonth;
@@ -33,6 +34,7 @@ class InventoryFilter {
     this.ageMaxDays,
     this.soldWithinDays,
     this.addedWithinDays,
+    this.sellThroughCohort = false,
     this.soldMonth,
     this.addedMonth,
   });
@@ -44,6 +46,7 @@ class InventoryFilter {
       ageMaxDays: q.ageMaxDays,
       soldWithinDays: q.soldWithinDays,
       addedWithinDays: q.addedWithinDays,
+      sellThroughCohort: q.sellThroughCohort,
       soldMonth: q.soldMonth,
       addedMonth: q.addedMonth,
     );
@@ -60,6 +63,7 @@ class InventoryFilter {
           ageMaxDays == other.ageMaxDays &&
           soldWithinDays == other.soldWithinDays &&
           addedWithinDays == other.addedWithinDays &&
+          sellThroughCohort == other.sellThroughCohort &&
           soldMonth == other.soldMonth &&
           addedMonth == other.addedMonth;
 
@@ -71,6 +75,7 @@ class InventoryFilter {
         ageMaxDays,
         soldWithinDays,
         addedWithinDays,
+        sellThroughCohort,
         soldMonth,
         addedMonth,
       );
@@ -87,6 +92,7 @@ final inventoryListProvider =
     ageMaxDays: filter.ageMaxDays,
     soldWithinDays: filter.soldWithinDays,
     addedWithinDays: filter.addedWithinDays,
+    sellThroughCohort: filter.sellThroughCohort,
     soldMonth: filter.soldMonth,
     addedMonth: filter.addedMonth,
   );
@@ -120,10 +126,13 @@ final inventoryMatchesByBarcodeProvider =
 });
 
 /// Single inventory item by ID.
+///
+/// Live (auto-disposed) stream so Edit Item never shows a cached row after a
+/// sale/merge elsewhere (BUG-02).
 final inventoryItemProvider =
-    FutureProvider.family<InventoryItem, int>((ref, id) {
+    StreamProvider.autoDispose.family<InventoryItem, int>((ref, id) {
   final db = ref.watch(databaseProvider);
-  return db.inventoryItemsDao.getById(id);
+  return db.inventoryItemsDao.watchById(id);
 });
 
 /// Controller for inventory CRUD operations.

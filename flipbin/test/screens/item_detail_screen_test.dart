@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
@@ -21,7 +22,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          inventoryItemProvider(42).overrideWith((ref) => Future.value(item)),
+          inventoryItemProvider(42).overrideWith((ref) => Stream.value(item)),
         ],
         child: const MaterialApp(
           home: ItemDetailScreen(itemId: '42'),
@@ -45,7 +46,9 @@ void main() {
       matching: find.byType(ListTile),
     );
     expect(
-      find.descendant(of: dateSoldTile, matching: find.text('2026-09-29')),
+      find.descendant(
+          of: dateSoldTile,
+          matching: find.text(DateFormat('yyyy-MM-dd').format(DateTime.now()))),
       findsOneWidget,
     );
   });
@@ -66,7 +69,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          inventoryItemProvider(43).overrideWith((ref) => Future.value(item)),
+          inventoryItemProvider(43).overrideWith((ref) => Stream.value(item)),
         ],
         child: const MaterialApp(
           home: ItemDetailScreen(itemId: '43'),

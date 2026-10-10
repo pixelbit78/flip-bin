@@ -25,7 +25,7 @@ void main() {
       (tester) async {
     await tester.pumpWidget(ProviderScope(
       overrides: [
-        inventoryItemProvider(7).overrideWith((ref) => Future.value(lot())),
+        inventoryItemProvider(7).overrideWith((ref) => Stream.value(lot())),
       ],
       child: const MaterialApp(home: ItemDetailScreen(itemId: '7')),
     ));
@@ -46,7 +46,7 @@ void main() {
     await tester.pumpWidget(ProviderScope(
       overrides: [
         inventoryItemProvider(8).overrideWith(
-            (ref) => Future.value(lot(id: 8, qty: 1, cost: 10, cpi: 10))),
+            (ref) => Stream.value(lot(id: 8, qty: 1, cost: 10, cpi: 10))),
       ],
       child: const MaterialApp(home: ItemDetailScreen(itemId: '8')),
     ));

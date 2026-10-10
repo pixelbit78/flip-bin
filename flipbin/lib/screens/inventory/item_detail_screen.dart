@@ -50,6 +50,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   DateTime? _dateSold;
   String? _imageUrl;
   bool _initialized = false;
+  bool _saving = false;
   InventoryItem? _loaded;
   String _initialCostText = '';
   int _initialQty = 1;
@@ -114,7 +115,10 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   }
 
   void _populateFromItem(InventoryItem item) {
-    if (_initialized) return;
+    if (_initialized) {
+      _maybeRefreshFromDb(item);
+      return;
+    }
     _initialized = true;
     _descController.text = item.itemDescription;
     _barcodeController.text = item.barcode ?? '';
@@ -131,6 +135,33 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     _dateAdded = item.dateAdded;
     _dateSold = item.dateSold;
     _imageUrl = item.imageUrl;
+  }
+
+  /// Live DB row changed while the form is open (BUG-02): when the user hasn't
+  /// touched qty/cost, adopt the fresh values so the form never holds stale
+  /// money/units.
+  void _maybeRefreshFromDb(InventoryItem item) {
+    final base = _loaded;
+    if (base == null || _saving) return;
+    final changed = item.quantity != base.quantity ||
+        toCents(item.cost) != toCents(base.cost) ||
+        item.status != base.status;
+    if (!changed) return;
+    final userEdited = _costController.text.trim() != _initialCostText.trim() ||
+        _quantity != _initialQty;
+    if (userEdited) return; // save-time guard will refuse
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _loaded = item;
+        _quantity = item.quantity;
+        _initialQty = item.quantity;
+        _costController.text = formatCpiField(item.cpi);
+        _initialCostText = _costController.text;
+        _status = item.status;
+        _dateSold = item.dateSold;
+      });
+    });
   }
 
   Future<void> _editCoverUrl() async {
@@ -194,7 +225,18 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   }
 
   Future<void> _save({bool popAfter = true}) async {
+    if (_saving) return; // BUG-03 in-flight guard
     if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      await _saveInner(popAfter: popAfter);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+      _saving = false;
+    }
+  }
+
+  Future<void> _saveInner({bool popAfter = true}) async {
 
     final cpi = round4(double.tryParse(_costController.text.trim()) ?? 0.0);
     final controller = ref.read(inventoryControllerProvider);
@@ -227,6 +269,32 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
       );
     } else {
       final id = int.parse(widget.itemId);
+      // BUG-02 guard: rebase on the latest DB row. If qty/cost changed under
+      // us (e.g. a sale) and the user didn't edit them, take the DB values;
+      // if the user did edit them, refuse rather than overwrite.
+      final latest = await controller.getById(id);
+      final base = _loaded;
+      if (base != null &&
+          (latest.quantity != base.quantity ||
+              toCents(latest.cost) != toCents(base.cost) ||
+              latest.status != base.status)) {
+        final userEdited = _costController.text.trim() != _initialCostText.trim() ||
+            _quantity != _initialQty;
+        if (userEdited) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('This item changed (e.g. a sale). Reopen it and try again.'),
+            ));
+          }
+          _saving = false;
+          return;
+        }
+        _quantity = latest.quantity;
+        _status = _status == base.status ? latest.status : _status;
+        _dateSold = _dateSold == base.dateSold ? latest.dateSold : _dateSold;
+        _initialQty = latest.quantity;
+      }
+      _loaded = latest;
       // Dirty tracking (SPEC §4.3/§8): an unchanged cpi + qty keeps the stored
       // total exactly (e.g. a migrated $4.65 lot); any edit recomputes it.
       final dirty = _costController.text.trim() != _initialCostText.trim() ||
@@ -681,7 +749,8 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                   child: SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: _save,
+                      key: const Key('itemSaveButton'),
+                      onPressed: _saving ? null : () => _save(),
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),

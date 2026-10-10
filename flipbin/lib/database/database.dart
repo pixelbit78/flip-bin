@@ -205,6 +205,23 @@ List<DateTime> _resolveMonthStarts({
   return _monthsFromTo(start, end);
 }
 
+/// Sell-through cohort for the trailing window. Single source of truth for
+/// both the Home card and its drill-downs (BUG-04): Active rows added in the
+/// window, plus Sold rows sold in the window. Personal is never in the cohort.
+enum SellThroughBucket { stillActive, sold }
+
+SellThroughBucket? sellThroughBucket(InventoryItem item, DateTime cutoff) {
+  if (item.status == ItemStatus.active && !item.dateAdded.isBefore(cutoff)) {
+    return SellThroughBucket.stillActive;
+  }
+  if (item.status == ItemStatus.sold &&
+      item.dateSold != null &&
+      !item.dateSold!.isBefore(cutoff)) {
+    return SellThroughBucket.sold;
+  }
+  return null;
+}
+
 @DriftAccessor(tables: [InventoryItems])
 class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$InventoryItemsDaoMixin {
   InventoryItemsDao(super.db);
@@ -218,8 +235,11 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
     int? addedWithinDays,
     DateTime? soldMonth,
     DateTime? addedMonth,
+    bool sellThroughCohort = false,
   }) {
     final query = select(inventoryItems);
+    final cohortDays = sellThroughCohort ? addedWithinDays : null;
+    if (cohortDays != null) addedWithinDays = null;
     if (statusFilter != null) {
       query.where((tbl) => tbl.status.equalsValue(statusFilter));
     }
@@ -274,7 +294,13 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
       );
     }
     query.orderBy([(tbl) => OrderingTerm.desc(tbl.dateAdded)]);
-    final stream = query.watch();
+    var stream = query.watch();
+    if (cohortDays != null) {
+      stream = stream.map((items) {
+        final cutoff = DateTime.now().subtract(Duration(days: cohortDays));
+        return items.where((i) => sellThroughBucket(i, cutoff) != null).toList();
+      });
+    }
     // Age band matches [watchAgingBuckets] (post-filter on dateAdded age).
     if (ageMinDays == null && ageMaxDays == null) return stream;
     return stream.map((items) {
@@ -286,6 +312,11 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
         return true;
       }).toList();
     });
+  }
+
+  Stream<InventoryItem> watchById(int id) {
+    return (select(inventoryItems)..where((tbl) => tbl.id.equals(id)))
+        .watchSingle();
   }
 
   Future<InventoryItem> getById(int id) {
@@ -650,13 +681,13 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
       var stillActive = 0;
       var sold = 0;
       for (final item in items) {
-        if (item.status == ItemStatus.active &&
-            !item.dateAdded.isBefore(cutoff)) {
-          stillActive += item.quantity;
-        } else if (item.status == ItemStatus.sold &&
-            item.dateSold != null &&
-            !item.dateSold!.isBefore(cutoff)) {
-          sold += item.quantity;
+        switch (sellThroughBucket(item, cutoff)) {
+          case SellThroughBucket.stillActive:
+            stillActive += item.quantity;
+          case SellThroughBucket.sold:
+            sold += item.quantity;
+          case null:
+            break;
         }
       }
       final listed = stillActive + sold;

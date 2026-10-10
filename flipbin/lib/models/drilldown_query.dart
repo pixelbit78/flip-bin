@@ -31,6 +31,10 @@ class DrillDownQuery {
   /// not an [ItemStatus]).
   final bool listedChip;
 
+  /// Use the sell-through cohort predicate (see `sellThroughBucket`) for
+  /// [addedWithinDays] instead of a plain dateAdded filter.
+  final bool sellThroughCohort;
+
   /// Whether the removable "90 days" (or N days) window chip is shown.
   final bool windowChip;
 
@@ -50,6 +54,7 @@ class DrillDownQuery {
     this.soldMonth,
     this.addedMonth,
     this.listedChip = false,
+    this.sellThroughCohort = false,
     this.windowChip = false,
     this.ageBandChip = false,
     this.monthChip = false,
@@ -94,6 +99,7 @@ class DrillDownQuery {
       soldMonth: parseMonth('soldMonth'),
       addedMonth: parseMonth('addedMonth'),
       listedChip: params['listedChip'] == '1',
+      sellThroughCohort: params['cohort'] == '1',
       windowChip: params['windowChip'] == '1',
       ageBandChip: params['ageBandChip'] == '1',
       monthChip: params['monthChip'] == '1',
@@ -115,6 +121,7 @@ class DrillDownQuery {
       map['addedMonth'] = _monthKey(addedMonth!);
     }
     if (listedChip) map['listedChip'] = '1';
+    if (sellThroughCohort) map['cohort'] = '1';
     if (windowChip) map['windowChip'] = '1';
     if (ageBandChip) map['ageBandChip'] = '1';
     if (monthChip) map['monthChip'] = '1';
@@ -189,7 +196,7 @@ class DrillDownQuery {
         next = copyWith(clearStatus: true);
         break;
       case 'listed':
-        next = copyWith(listedChip: false, clearAddedMonth: true, clearAddedWithin: true);
+        next = copyWith(listedChip: false, sellThroughCohort: false, clearAddedMonth: true, clearAddedWithin: true);
         break;
       case 'ageBand':
         next = copyWith(
@@ -245,6 +252,7 @@ class DrillDownQuery {
     DateTime? addedMonth,
     bool clearAddedMonth = false,
     bool? listedChip,
+    bool? sellThroughCohort,
     bool? windowChip,
     bool? ageBandChip,
     bool? monthChip,
@@ -261,6 +269,7 @@ class DrillDownQuery {
       soldMonth: clearSoldMonth ? null : (soldMonth ?? this.soldMonth),
       addedMonth: clearAddedMonth ? null : (addedMonth ?? this.addedMonth),
       listedChip: listedChip ?? this.listedChip,
+      sellThroughCohort: sellThroughCohort ?? this.sellThroughCohort,
       windowChip: windowChip ?? this.windowChip,
       ageBandChip: ageBandChip ?? this.ageBandChip,
       monthChip: monthChip ?? this.monthChip,
@@ -295,6 +304,7 @@ class DrillDownQuery {
       title: 'Sell-through · Listed',
       addedWithinDays: windowDays,
       listedChip: true,
+      sellThroughCohort: true,
       windowChip: true,
     );
   }
@@ -341,6 +351,7 @@ class DrillDownQuery {
           soldMonth == other.soldMonth &&
           addedMonth == other.addedMonth &&
           listedChip == other.listedChip &&
+          sellThroughCohort == other.sellThroughCohort &&
           windowChip == other.windowChip &&
           ageBandChip == other.ageBandChip &&
           monthChip == other.monthChip;
@@ -356,6 +367,7 @@ class DrillDownQuery {
         soldMonth,
         addedMonth,
         listedChip,
+        sellThroughCohort,
         windowChip,
         ageBandChip,
         monthChip,

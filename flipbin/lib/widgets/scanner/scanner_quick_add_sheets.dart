@@ -300,6 +300,7 @@ class _ScannerInventoryQuickAddSheetState
   }
 
   Future<void> _save() async {
+    if (_saving) return; // BUG-03 in-flight guard
     if (!_formKey.currentState!.validate()) return;
     final parsed = double.tryParse(_costController.text.trim());
     if (parsed == null) return;
@@ -597,6 +598,7 @@ class _ScannerExpenseQuickAddSheetState
   }
 
   Future<void> _save() async {
+    if (_saving) return; // BUG-03 in-flight guard
     if (!_formKey.currentState!.validate()) return;
     final amount = double.tryParse(_amountController.text.trim());
     if (amount == null) return;

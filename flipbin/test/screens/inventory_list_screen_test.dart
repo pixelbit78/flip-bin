@@ -400,7 +400,7 @@ void main() {
       ProviderScope(
         overrides: [
           soldChildUnitsProvider.overrideWith((ref) => Stream.value(const <int, int>{})),
-          inventoryItemProvider(10).overrideWith((ref) => Future.value(activeItem)),
+          inventoryItemProvider(10).overrideWith((ref) => Stream.value(activeItem)),
         ],
         child: const MaterialApp(
           home: ItemDetailScreen(itemId: '10'),
@@ -534,5 +534,8 @@ void main() {
     expect(saved.saleNumber, equals('ORD-999'));
     expect(saved.comments, equals('updated note'));
     expect(saved.itemDescription, equals('Kept Fields Item'));
+    // Edit Item watches the row live; dispose so drift's stream timer clears.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 1));
   });
 }
