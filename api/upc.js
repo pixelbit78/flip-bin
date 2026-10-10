@@ -45,6 +45,41 @@ function pickImage(item) {
   return null;
 }
 
+/** GS1 mod-10 check over a digit string (last digit is the check digit). */
+function mod10Ok(code) {
+  let sum = 0;
+  for (let i = code.length - 2, w = 3; i >= 0; i--, w = 4 - w) {
+    sum += Number(code[i]) * w;
+  }
+  return (10 - (sum % 10)) % 10 === Number(code[code.length - 1]);
+}
+
+/** UPC-E (8 digits, number system 0/1) → UPC-A (12 digits). */
+function upcEtoA(e) {
+  const ns = e[0];
+  const d = e.slice(1, 7);
+  const chk = e[7];
+  const last = d[5];
+  let body;
+  if ('012'.includes(last)) body = d[0] + d[1] + last + '0000' + d[2] + d[3] + d[4];
+  else if (last === '3') body = d[0] + d[1] + d[2] + '00000' + d[3] + d[4];
+  else if (last === '4') body = d[0] + d[1] + d[2] + d[3] + '00000' + d[4];
+  else body = d[0] + d[1] + d[2] + d[3] + d[4] + '0000' + last;
+  return ns + body + chk;
+}
+
+/**
+ * Check digit validation for EAN-8 / UPC-E / UPC-A / EAN-13 / GTIN-14.
+ * 9–11 digit codes (leading zeros dropped) are zero-padded to UPC-A.
+ */
+function validCheckDigit(code) {
+  if (code.length === 8) {
+    if (mod10Ok(code)) return true; // EAN-8
+    return (code[0] === '0' || code[0] === '1') && mod10Ok(upcEtoA(code));
+  }
+  return mod10Ok(code.padStart(14, '0'));
+}
+
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     setCors(res);
@@ -72,6 +107,15 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  if (!validCheckDigit(upc)) {
+    json(res, 400, {
+      error: 'invalid_upc',
+      barcode: upc,
+      message: 'check digit does not match',
+    }, true);
+    return;
+  }
+
   try {
     const url = `${UPSTREAM}?upc=${encodeURIComponent(upc)}`;
     const upstream = await fetch(url, {
@@ -91,6 +135,12 @@ module.exports = async function handler(req, res) {
       res.statusCode = 429;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.end(JSON.stringify({ error: 'rate_limited', barcode: upc, retryAfter: retry || null }));
+      return;
+    }
+
+    if (upstream.status === 400) {
+      // UPCitemdb answers INVALID_UPC with 400: a client error, not a 502.
+      json(res, 400, { error: 'invalid_upc', barcode: upc }, true);
       return;
     }
 
@@ -139,3 +189,5 @@ module.exports = async function handler(req, res) {
     });
   }
 };
+
+module.exports.validCheckDigit = validCheckDigit;
