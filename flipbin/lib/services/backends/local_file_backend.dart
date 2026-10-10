@@ -1,7 +1,9 @@
 // QA backend: local XLSX export/import that mirrors the Google sheet's tabs
 // and columns via the shared mapping (SPEC §12.6). Never touches Google.
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:excel/excel.dart';
 import 'package:flipbin/database/database.dart';
 import 'package:flipbin/services/backends/local_file_io.dart' as io;
@@ -64,6 +66,43 @@ String? _cellText(Data? d) {
   };
 }
 
+/// BUG-01: normalise quirks of openpyxl (and similar writers) that the
+/// `excel` package can't read, without touching the data:
+///  * absolute part names in `xl/_rels/workbook.xml.rels`
+///    (Target="/xl/worksheets/sheet1.xml"); `excel` resolves targets relative
+///    to `xl/` so it can't find the sheets;
+///  * empty inline-string cells (`<c t="inlineStr"></c>` / `<is/>`), which
+///    crash its inline-string parser.
+/// A zip that can't be read at all still fails as damaged/truncated.
+List<int> normalizeXlsx(List<int> bytes) {
+  final archive = ZipDecoder().decodeBytes(bytes, verify: true);
+  final emptyInline = RegExp(
+      r'(<c\b[^>]*\bt="inlineStr"[^>]*?)(?:/>|>\s*(?:<is\s*/>|<is>\s*</is>)?\s*</c>)');
+  final absTarget = RegExp(r'Target="/xl/([^"]+)"');
+  var changed = false;
+  final out = Archive();
+  for (final f in archive.files) {
+    final isRels = f.name == 'xl/_rels/workbook.xml.rels';
+    final isSheet =
+        f.name.startsWith('xl/worksheets/') && f.name.endsWith('.xml');
+    if (f.isFile && (isRels || isSheet)) {
+      final xml = utf8.decode(f.content as List<int>);
+      final fixed = isRels
+          ? xml.replaceAllMapped(absTarget, (m) => 'Target="${m[1]}"')
+          : xml.replaceAllMapped(
+              emptyInline, (m) => '${m[1]}><is><t></t></is></c>');
+      if (fixed != xml) {
+        changed = true;
+        final data = utf8.encode(fixed);
+        out.addFile(ArchiveFile(f.name, data.length, data));
+        continue;
+      }
+    }
+    out.addFile(f);
+  }
+  return changed ? ZipEncoder().encode(out)! : bytes;
+}
+
 /// Decodes and validates a workbook. Throws [SheetFormatException] with a
 /// clear reason; nothing is imported on failure.
 WorkbookRows decodeWorkbook(List<int> bytes) {
@@ -74,7 +113,7 @@ WorkbookRows decodeWorkbook(List<int> bytes) {
   }
   Excel excel;
   try {
-    excel = Excel.decodeBytes(bytes);
+    excel = Excel.decodeBytes(normalizeXlsx(bytes));
   } catch (e) {
     throw SheetFormatException('the workbook is damaged or truncated');
   }

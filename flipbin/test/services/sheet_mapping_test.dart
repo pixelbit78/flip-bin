@@ -71,6 +71,27 @@ void main() {
     expect(p.report, isEmpty);
   });
 
+  test('BUG-01: openpyxl-saved workbook parses like the original', () {
+    final a = parseWorkbook(File('$dir/v4_full.xlsx').readAsBytesSync());
+    final b = parseWorkbook(File('$dir/openpyxl_v4_full.xlsx').readAsBytesSync());
+    expect(jsonEncode(snapshot(b)), jsonEncode(snapshot(a)));
+  });
+
+  test('BUG-01: QA export re-saved by openpyxl imports', () {
+    final r = parseWorkbook(
+        File('$dir/openpyxl_resaved_qa_export.xlsx').readAsBytesSync());
+    expect(r.inventory.items, isNotEmpty);
+  });
+
+  test('BUG-01: truncated openpyxl file is still rejected', () {
+    final full = File('$dir/openpyxl_v4_full.xlsx').readAsBytesSync();
+    expect(
+      () => parseWorkbook(full.sublist(0, full.length ~/ 2)),
+      throwsA(isA<SheetFormatException>().having(
+          (e) => e.toString(), 'msg', contains('damaged or truncated'))),
+    );
+  });
+
   for (final name in [
     'corrupt_zero_byte',
     'corrupt_truncated',
