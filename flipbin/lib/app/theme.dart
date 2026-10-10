@@ -17,6 +17,7 @@ class FlipBinTheme {
     );
 
     return ThemeData(
+      fontFamily: 'Roboto', // bundled (SPEC §12.8)
       useMaterial3: true,
       brightness: Brightness.dark,
       colorScheme: colorScheme,

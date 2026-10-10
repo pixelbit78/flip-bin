@@ -1,5 +1,7 @@
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+
+export 'package:google_sign_in/google_sign_in.dart' show GoogleSignInAccount;
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:http/http.dart' as http;
@@ -7,6 +9,10 @@ import 'package:flipbin/database/database.dart';
 import 'package:flipbin/config/env.dart';
 import 'package:flipbin/services/sheet_mapping.dart' as mapping;
 import 'package:flipbin/services/google_session_store.dart';
+
+// QA builds replace this file with qa_stubs/google_sheets_service_stub.dart
+// and drop the Google packages from pubspec (scripts/vercel-build-qa.sh).
+// Keep the public API of both files in sync.
 
 /// Abstract client interface for Google Sheets API operations.
 abstract class SheetsClient {

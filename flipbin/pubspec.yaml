@@ -40,3 +40,13 @@ flutter:
 
   assets:
     - assets/covers/
+
+  # Self-hosted Roboto (SPEC §12.8): no runtime fetch from fonts.gstatic.com.
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.ttf
+        - asset: assets/fonts/Roboto-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Roboto-Bold.ttf
+          weight: 700
