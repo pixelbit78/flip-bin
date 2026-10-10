@@ -6,6 +6,7 @@ import 'package:flipbin/models/drilldown_query.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/utils/default_cover.dart';
 import 'package:flipbin/widgets/status_badge.dart';
+import 'package:flipbin/screens/inventory/inventory_list_screen.dart' show QtyPill;
 import 'package:flipbin/widgets/type_badge.dart';
 
 /// Home-originated inventory drill-down: filter chips + cost-only list.
@@ -94,7 +95,9 @@ class _InventoryDrillDownScreenState
             itemsAsync.when(
               data: (items) {
                 final cost = items.fold<double>(0, (s, i) => s + i.cost);
-                final subtitle = _subtitleFor(items.length, cost);
+                // Units (Σ qty) · Σ stored cost (SPEC §5.6).
+                final units = items.fold<int>(0, (s, i) => s + i.quantity);
+                final subtitle = _subtitleFor(units, cost);
                 return Text(
                   subtitle,
                   style: const TextStyle(
@@ -188,6 +191,10 @@ class _InventoryDrillDownScreenState
                                         TypeBadge(type: item.type),
                                         const SizedBox(width: 8),
                                         StatusBadge(status: item.status),
+                                        if (item.quantity > 1) ...[
+                                          const SizedBox(width: 8),
+                                          QtyPill(qty: item.quantity),
+                                        ],
                                       ],
                                     ),
                                   ],

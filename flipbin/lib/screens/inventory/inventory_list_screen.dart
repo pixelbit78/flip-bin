@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/widgets/status_badge.dart';
 import 'package:flipbin/widgets/type_badge.dart';
 import 'package:flipbin/utils/default_cover.dart';
+import 'package:flipbin/utils/cost_field.dart';
+import 'package:flipbin/widgets/sell_quantity_sheet.dart';
 
 /// Screen displaying searchable and filterable list of inventory items.
 class InventoryListScreen extends ConsumerStatefulWidget {
@@ -47,6 +50,8 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
     );
 
     final itemsAsync = ref.watch(inventoryListProvider(filter));
+    final childUnits =
+        ref.watch(soldChildUnitsProvider).valueOrNull ?? const <int, int>{};
 
     return Scaffold(
       appBar: AppBar(
@@ -197,29 +202,53 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
                                           status: item.status,
                                           onTap: item.status == ItemStatus.sold
                                               ? null
-                                              : () {
-                                                  final next = item.status.next;
-                                                  ref
-                                                      .read(
-                                                          inventoryControllerProvider)
-                                                      .updateInventoryItem(
-                                                        item.copyWith(
-                                                            status: next),
-                                                      );
-                                                },
+                                              : () => runSellFlow(
+                                                    context,
+                                                    ref.read(
+                                                        inventoryControllerProvider),
+                                                    item,
+                                                    showUndo: false,
+                                                  ),
                                         ),
+                                        if (item.quantity > 1) ...[
+                                          const SizedBox(width: 8),
+                                          QtyPill(qty: item.quantity),
+                                        ],
                                       ],
                                     ),
+                                    if ((childUnits[item.id] ?? 0) > 0) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${childUnits[item.id]} of ${item.quantity + childUnits[item.id]!} sold',
+                                        style: const TextStyle(
+                                          color: Colors.white54,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
                               const SizedBox(width: 12),
-                              Text(
-                                '\$${item.cost.toStringAsFixed(2)}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '\$${item.cost.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  if (item.quantity > 1)
+                                    Text(
+                                      formatEach(item.cpi),
+                                      style: const TextStyle(
+                                        color: Colors.white54,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                ],
                               ),
                             ],
                           ),
@@ -236,6 +265,27 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
       floatingActionButton: FloatingActionButton(
         onPressed: () => context.go('/inventory/new'),
         child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+/// `×N` quantity pill shown on rows with qty > 1.
+class QtyPill extends StatelessWidget {
+  final int qty;
+  const QtyPill({super.key, required this.qty});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.white38),
+      ),
+      child: Text(
+        '×$qty',
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
       ),
     );
   }

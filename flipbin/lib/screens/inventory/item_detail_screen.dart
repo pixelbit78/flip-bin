@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -10,6 +11,7 @@ import 'package:flipbin/services/barcode_lookup_service.dart';
 import 'package:flipbin/utils/cost_field.dart';
 import 'package:flipbin/utils/default_cover.dart';
 import 'package:flipbin/utils/proxied_image_url.dart';
+import 'package:flipbin/widgets/sell_quantity_sheet.dart';
 
 /// Screen for adding or editing an inventory item.
 class ItemDetailScreen extends ConsumerStatefulWidget {
@@ -48,6 +50,9 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   DateTime? _dateSold;
   String? _imageUrl;
   bool _initialized = false;
+  InventoryItem? _loaded;
+  String _initialCostText = '';
+  int _initialQty = 1;
   bool _prefillApplied = false;
 
   @override
@@ -114,7 +119,10 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     _descController.text = item.itemDescription;
     _barcodeController.text = item.barcode ?? '';
     _platformController.text = item.platform ?? '';
-    _costController.text = item.cost.toStringAsFixed(2);
+    _loaded = item;
+    _costController.text = formatCpiField(item.cpi);
+    _initialCostText = _costController.text;
+    _initialQty = item.quantity;
     _saleNumberController.text = item.saleNumber ?? '';
     _commentsController.text = item.comments ?? '';
     _type = item.type;
@@ -170,10 +178,25 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     });
   }
 
-  Future<void> _save() async {
+  void _leave() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/inventory');
+    }
+  }
+
+  Future<void> _markUnsold() async {
+    final item = _loaded;
+    if (item == null) return;
+    await ref.read(inventoryControllerProvider).unsell(item.id);
+    if (mounted) _leave();
+  }
+
+  Future<void> _save({bool popAfter = true}) async {
     if (!_formKey.currentState!.validate()) return;
 
-    final cost = double.tryParse(_costController.text.trim()) ?? 0.0;
+    final cpi = round4(double.tryParse(_costController.text.trim()) ?? 0.0);
     final controller = ref.read(inventoryControllerProvider);
 
     if (widget.isNew) {
@@ -182,7 +205,8 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
           dateAdded: _dateAdded,
           itemDescription: _descController.text.trim(),
           type: _type,
-          cost: cost,
+          cost: lineTotal(_quantity, cpi),
+          costPerItem: Value(cpi),
           quantity: Value(_quantity),
           platform: Value(_platformController.text.trim().isEmpty
               ? null
@@ -203,13 +227,24 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
       );
     } else {
       final id = int.parse(widget.itemId);
+      // Dirty tracking (SPEC §4.3/§8): an unchanged cpi + qty keeps the stored
+      // total exactly (e.g. a migrated $4.65 lot); any edit recomputes it.
+      final dirty = _costController.text.trim() != _initialCostText.trim() ||
+          _quantity != _initialQty ||
+          _loaded == null;
+      final keptCost = _loaded?.cost ?? lineTotal(_quantity, cpi);
+      final keptCpi = _loaded?.cpi ?? cpi;
       await controller.updateInventoryItem(
         InventoryItem(
           id: id,
           dateAdded: _dateAdded,
           itemDescription: _descController.text.trim(),
           type: _type,
-          cost: cost,
+          cost: dirty ? lineTotal(_quantity, cpi) : keptCost,
+          costPerItem: dirty ? cpi : keptCpi,
+          parentId: _loaded?.parentId,
+          lookupName: _loaded?.lookupName,
+          lookupDescription: _loaded?.lookupDescription,
           quantity: _quantity,
           platform: _platformController.text.trim().isEmpty
               ? null
@@ -230,13 +265,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
       );
     }
 
-    if (mounted) {
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go('/inventory');
-      }
-    }
+    if (mounted && popAfter) _leave();
   }
 
   Future<void> _delete() async {
@@ -272,9 +301,24 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     }
   }
 
-  /// Mark sold control: Active/Personal → sold + dateSold=now (form state; Save persists).
-  void _markSold() {
+  /// Mark sold control. qty 1 (or a new item): Active/Personal → sold +
+  /// dateSold=now in form state (Save persists). Existing qty > 1: save the
+  /// form, then open "How many sold?" and split/sell immediately (SPEC §5.1).
+  Future<void> _markSold() async {
     if (_status == ItemStatus.sold) return;
+    if (!widget.isNew && _quantity > 1 && _loaded != null) {
+      if (!_formKey.currentState!.validate()) return;
+      await _save(popAfter: false);
+      if (!mounted) return;
+      final fresh = await ref
+          .read(inventoryControllerProvider)
+          .getById(_loaded!.id);
+      if (!mounted) return;
+      final soldId = await runSellFlow(
+          context, ref.read(inventoryControllerProvider), fresh);
+      if (soldId != null && mounted) _leave();
+      return;
+    }
     setState(() {
       _status = ItemStatus.sold;
       _dateSold ??= DateTime.now();
@@ -341,6 +385,30 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Read-only Total cost (SPEC §5.1): qty × cost per item, or the stored
+  /// total when nothing was edited. Not focusable.
+  Widget _buildReadOnlyTotal() {
+    final cpi = double.tryParse(_costController.text.trim()) ?? 0.0;
+    final unchanged = _loaded != null &&
+        _costController.text.trim() == _initialCostText.trim() &&
+        _quantity == _initialQty;
+    final total = unchanged ? _loaded!.cost : lineTotal(_quantity, cpi);
+    return ExcludeFocus(
+      child: InputDecorator(
+        key: const Key('editTotalCost'),
+        isEmpty: false,
+        decoration: const InputDecoration(
+          labelText: 'Total cost (\$)',
+          enabled: false,
+        ),
+        child: Text(
+          '\$ ${total.toStringAsFixed(2)}',
+          style: const TextStyle(color: Colors.white54, fontSize: 16),
         ),
       ),
     );
@@ -483,22 +551,23 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                         child: TextFormField(
                           controller: _costController,
                           focusNode: _costFocusNode,
-                          decoration: const InputDecoration(
-                            labelText: 'Cost (\$)',
+                          key: const Key('editCostPerItem'),
+                          decoration: InputDecoration(
+                            labelText: _quantity > 1
+                                ? 'Cost per item (\$)'
+                                : 'Cost (\$)',
                             prefixText: '\$ ',
                           ),
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
                           ),
-                          validator: (val) {
-                            if (val == null || val.trim().isEmpty) {
-                              return 'Cost is required';
-                            }
-                            if (double.tryParse(val.trim()) == null) {
-                              return 'Enter valid number';
-                            }
-                            return null;
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                          ],
+                          onChanged: (_) {
+                            if (_quantity > 1) setState(() {});
                           },
+                          validator: validateCostInput,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -519,13 +588,33 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.add_circle_outline),
-                              onPressed: () => setState(() => _quantity++),
+                              onPressed: _quantity < kMaxQty
+                                  ? () => setState(() => _quantity++)
+                                  : null,
                             ),
                           ],
                         ),
                       ),
                     ],
                   ),
+                  if (_quantity > 1) ...[
+                    const SizedBox(height: 16),
+                    _buildReadOnlyTotal(),
+                  ],
+                  if (!widget.isNew && _status == ItemStatus.sold && _loaded?.status == ItemStatus.sold) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        key: const Key('markUnsoldButton'),
+                        onPressed: _markUnsold,
+                        icon: const Icon(Icons.undo),
+                        label: Text(_loaded?.parentId != null
+                            ? 'Mark unsold (merge back)'
+                            : 'Mark unsold'),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _barcodeController,

@@ -9,6 +9,7 @@ import 'package:flipbin/providers/expense_provider.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/services/barcode_lookup_service.dart';
 import 'package:flipbin/utils/cost_field.dart';
+import 'package:flipbin/widgets/sell_quantity_sheet.dart';
 import 'package:flipbin/utils/default_cover.dart';
 import 'package:flipbin/utils/proxied_image_url.dart';
 
@@ -268,11 +269,17 @@ class _ScannerInventoryQuickAddSheetState
   late final FocusNode _costFocusNode;
   ItemStatus _status = ItemStatus.active;
   bool _saving = false;
+  int _qty = 1;
+  int _soldCount = 1; // "How many sold?" — tracks All by default
+  bool _soldIsAll = true;
 
   @override
   void initState() {
     super.initState();
     _costController = TextEditingController();
+    _costController.addListener(() {
+      if (_qty > 1 && mounted) setState(() {});
+    });
     _costFocusNode = FocusNode();
     _costFocusNode.addListener(_onCostFocusChange);
   }
@@ -294,8 +301,10 @@ class _ScannerInventoryQuickAddSheetState
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    final cost = double.tryParse(_costController.text.trim());
-    if (cost == null) return;
+    final parsed = double.tryParse(_costController.text.trim());
+    if (parsed == null) return;
+    final cpi = round4(parsed);
+    final sold = _soldIsAll ? _qty : _soldCount.clamp(1, _qty);
 
     setState(() => _saving = true);
     try {
@@ -305,16 +314,21 @@ class _ScannerInventoryQuickAddSheetState
       final image =
           proxiedImageUrl(widget.scan.imageUrl) ?? widget.scan.imageUrl?.trim();
       final now = DateTime.now();
-      final dateSold = _status == ItemStatus.sold ? now : null;
+      // Partial "How many sold?" (C2): save Active (qty) then split n off.
+      final partial = _status == ItemStatus.sold && _qty > 1 && sold < _qty;
+      final status = partial ? ItemStatus.active : _status;
+      final dateSold = status == ItemStatus.sold ? now : null;
 
-      await ref.read(inventoryControllerProvider).saveInventoryItem(
+      final controller = ref.read(inventoryControllerProvider);
+      final id = await controller.saveInventoryItem(
             InventoryItemsCompanion.insert(
               dateAdded: now,
               itemDescription: title,
               type: type,
-              cost: cost,
-              quantity: const Value(1),
-              status: _status,
+              cost: lineTotal(_qty, cpi),
+              costPerItem: Value(cpi),
+              quantity: Value(_qty),
+              status: status,
               dateSold: Value(dateSold),
               imageUrl: Value(
                 (image != null && image.isNotEmpty) ? image : null,
@@ -322,6 +336,9 @@ class _ScannerInventoryQuickAddSheetState
               barcode: Value(upc.isEmpty ? null : upc),
             ),
           );
+      if (partial) {
+        await controller.sellUnits(id, sold, date: now);
+      }
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -348,13 +365,47 @@ class _ScannerInventoryQuickAddSheetState
           children: [
             ScannerProductSummary(scan: widget.scan),
             const SizedBox(height: 14),
-            const Text(
-              'Cost *',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.white70,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _qty > 1 ? 'Cost per item *' : 'Cost *',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ),
+                const Text(
+                  'Qty',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white70,
+                  ),
+                ),
+                IconButton(
+                  key: const Key('scannerInventoryQtyMinus'),
+                  icon: const Icon(Icons.remove, color: Colors.white),
+                  onPressed: _qty > 1 ? () => setState(() => _qty--) : null,
+                ),
+                Text(
+                  '$_qty',
+                  key: const Key('scannerInventoryQty'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  key: const Key('scannerInventoryQtyPlus'),
+                  icon: const Icon(Icons.add, color: Colors.white),
+                  onPressed:
+                      _qty < kMaxQty ? () => setState(() => _qty++) : null,
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             TextFormField(
@@ -375,15 +426,27 @@ class _ScannerInventoryQuickAddSheetState
                 filled: true,
                 fillColor: _surfaceBg,
               ),
-              validator: (value) {
-                final raw = value?.trim() ?? '';
-                if (raw.isEmpty) return 'Cost is required';
-                final parsed = double.tryParse(raw);
-                if (parsed == null) return 'Enter a valid amount';
-                if (parsed < 0) return 'Cost cannot be negative';
-                return null;
-              },
+              validator: validateCostInput,
             ),
+            if (_qty > 1) ...[
+              const SizedBox(height: 10),
+              ExcludeFocus(
+                child: InputDecorator(
+                  key: const Key('scannerInventoryTotalCost'),
+                  decoration: const InputDecoration(
+                    labelText: 'Total cost',
+                    labelStyle: TextStyle(color: Colors.white54),
+                    filled: true,
+                    fillColor: _surfaceBg,
+                    enabled: false,
+                  ),
+                  child: Text(
+                    '\$ ${lineTotal(_qty, round4(double.tryParse(_costController.text.trim()) ?? 0)).toStringAsFixed(2)}',
+                    style: const TextStyle(color: Colors.white54, fontSize: 16),
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             const Text(
               'Status',
@@ -398,6 +461,17 @@ class _ScannerInventoryQuickAddSheetState
               value: _status,
               onChanged: (s) => setState(() => _status = s),
             ),
+            if (_status == ItemStatus.sold && _qty > 1) ...[
+              const SizedBox(height: 10),
+              HowManySoldRow(
+                qty: _qty,
+                value: _soldIsAll ? _qty : _soldCount.clamp(1, _qty),
+                onChanged: (n) => setState(() {
+                  _soldIsAll = n >= _qty;
+                  _soldCount = n;
+                }),
+              ),
+            ],
             const SizedBox(height: 10),
             const Text(
               'Sold sets Date Sold to today.',

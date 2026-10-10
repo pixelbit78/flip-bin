@@ -106,6 +106,12 @@ final inventoryTotalCostProvider =
   return db.inventoryItemsDao.watchTotalCostByStatus(status);
 });
 
+/// Units already split off (Sold children) per parent id — for "x of y sold".
+final soldChildUnitsProvider = StreamProvider<Map<int, int>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.inventoryItemsDao.watchSoldChildUnitsByParent();
+});
+
 /// Live active/personal inventory rows matching a scanned/manual UPC.
 final inventoryMatchesByBarcodeProvider =
     StreamProvider.family<List<InventoryItem>, String>((ref, barcode) {
@@ -148,6 +154,23 @@ class InventoryController {
     if (barcode != null && barcode.isNotEmpty) {
       _ref.invalidate(inventoryMatchesByBarcodeProvider(barcode));
     }
+  }
+
+  Future<InventoryItem> getById(int id) => _db.inventoryItemsDao.getById(id);
+
+  /// Sell [units] of row [id] (split when partial). Returns the Sold row id.
+  Future<int> sellUnits(int id, int units, {DateTime? date}) async {
+    final soldId =
+        await _db.inventoryItemsDao.sellUnits(id, units, date: date);
+    _invalidateAll();
+    return soldId;
+  }
+
+  /// Un-sell (merge back into a live parent, or flip to Active).
+  Future<int> unsell(int soldId) async {
+    final id = await _db.inventoryItemsDao.unsell(soldId);
+    _invalidateAll();
+    return id;
   }
 
   Future<void> deleteInventoryItem(int id) async {

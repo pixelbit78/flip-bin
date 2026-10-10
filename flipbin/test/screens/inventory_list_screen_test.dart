@@ -38,6 +38,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          soldChildUnitsProvider.overrideWith((ref) => Stream.value(const <int, int>{})),
           inventoryListProvider(const InventoryFilter()).overrideWith(
             (ref) => Stream.value(sampleItems),
           ),
@@ -66,6 +67,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          soldChildUnitsProvider.overrideWith((ref) => Stream.value(const <int, int>{})),
           inventoryListProvider.overrideWith(
             (ref, filter) {
               capturedFilter = filter;
@@ -95,6 +97,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          soldChildUnitsProvider.overrideWith((ref) => Stream.value(const <int, int>{})),
           inventoryListProvider.overrideWith(
             (ref, filter) {
               capturedFilter = filter;
@@ -122,6 +125,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          soldChildUnitsProvider.overrideWith((ref) => Stream.value(const <int, int>{})),
           inventoryListProvider(const InventoryFilter()).overrideWith(
             (ref) => Stream.value(sampleItems),
           ),
@@ -171,6 +175,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          soldChildUnitsProvider.overrideWith((ref) => Stream.value(const <int, int>{})),
           inventoryListProvider.overrideWith(
             (ref, filter) {
               capturedFilter = filter;
@@ -227,6 +232,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          soldChildUnitsProvider.overrideWith((ref) => Stream.value(const <int, int>{})),
           databaseProvider.overrideWithValue(db),
         ],
         child: MaterialApp.router(routerConfig: router),
@@ -274,6 +280,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          soldChildUnitsProvider.overrideWith((ref) => Stream.value(const <int, int>{})),
           databaseProvider.overrideWithValue(db),
         ],
         child: const MaterialApp(home: InventoryListScreen()),
@@ -330,6 +337,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          soldChildUnitsProvider.overrideWith((ref) => Stream.value(const <int, int>{})),
           databaseProvider.overrideWithValue(db),
         ],
         child: MaterialApp.router(routerConfig: router),
@@ -391,6 +399,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          soldChildUnitsProvider.overrideWith((ref) => Stream.value(const <int, int>{})),
           inventoryItemProvider(10).overrideWith((ref) => Future.value(activeItem)),
         ],
         child: const MaterialApp(
@@ -501,6 +510,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          soldChildUnitsProvider.overrideWith((ref) => Stream.value(const <int, int>{})),
           databaseProvider.overrideWithValue(db),
         ],
         child: MaterialApp.router(routerConfig: router),

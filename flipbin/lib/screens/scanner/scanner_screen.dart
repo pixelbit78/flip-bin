@@ -2,13 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flipbin/utils/cost_field.dart';
+import 'package:flipbin/widgets/sell_quantity_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import 'package:flipbin/database/database.dart';
-import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/providers/scanner_provider.dart';
 import 'package:flipbin/services/barcode_lookup_service.dart';
@@ -779,8 +780,18 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 StatusBadge(status: item.status),
+                if (item.quantity > 1)
+                  Text(
+                    '×${item.quantity}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 Text(
-                  '\$${item.cost.toStringAsFixed(2)}',
+                  item.quantity > 1
+                      ? '\$${item.cost.toStringAsFixed(2)} · ${formatEach(item.cpi)}'
+                      : '\$${item.cost.toStringAsFixed(2)}',
                   style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 12,
@@ -845,13 +856,22 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     if (_savingSoldIds.contains(item.id)) return;
     setState(() => _savingSoldIds.add(item.id));
     try {
-      await ref.read(inventoryControllerProvider).updateInventoryItem(
-            item.copyWith(status: ItemStatus.sold),
-          );
+      final controller = ref.read(inventoryControllerProvider);
+      var units = item.quantity;
+      DateTime? date;
+      if (item.quantity > 1) {
+        final choice = await showSellQuantitySheet(context, item);
+        if (choice == null) return;
+        units = choice.units;
+        date = choice.date;
+      }
+      await controller.sellUnits(item.id, units, date: date);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Marked "${item.itemDescription}" as sold'),
+          content: Text(units == item.quantity
+              ? 'Marked "${item.itemDescription}" as sold'
+              : 'Sold $units of ${item.quantity} "${item.itemDescription}"'),
           duration: const Duration(seconds: 2),
         ),
       );
