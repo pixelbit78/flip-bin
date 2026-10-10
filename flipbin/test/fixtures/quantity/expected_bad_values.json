@@ -1,0 +1,77 @@
+{
+  "items": [
+    {
+      "row_id": 1,
+      "description": "Qty zero",
+      "qty": 1,
+      "cost": 5.0,
+      "cost_per_item": 5.0,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 2,
+      "description": "Qty negative",
+      "qty": 1,
+      "cost": 5.0,
+      "cost_per_item": 5.0,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 3,
+      "description": "Qty decimal",
+      "qty": 1,
+      "cost": 5.0,
+      "cost_per_item": 5.0,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 4,
+      "description": "Qty text",
+      "qty": 1,
+      "cost": 5.0,
+      "cost_per_item": 5.0,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 5,
+      "description": "Mismatch",
+      "qty": 4,
+      "cost": 12.0,
+      "cost_per_item": 3.0,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 6,
+      "description": "Orphan child",
+      "qty": 1,
+      "cost": 2.0,
+      "cost_per_item": 2.0,
+      "status": "sold",
+      "parent_id": null
+    },
+    {
+      "row_id": 7,
+      "description": "Boundary 1.01c",
+      "qty": 1,
+      "cost": 1.01,
+      "cost_per_item": 1.0101,
+      "status": "active",
+      "parent_id": null
+    }
+  ],
+  "expenses": 1,
+  "report": [
+    "Row 2: Qty \"0\" invalid — used 1",
+    "Row 3: Qty \"-1\" invalid — used 1",
+    "Row 4: Qty \"2.5\" invalid — used 1",
+    "Row 5: Qty \"abc\" invalid — used 1",
+    "Row 6: Cost $10.00 ≠ Qty × Cost Per Item $12.00 — used $12.00",
+    "Row 8: Cost $1.00 ≠ Qty × Cost Per Item $1.01 — used $1.01",
+    "Row 7: Parent Row 99 not found — dropped"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "items": [
+    {
+      "row_id": 1,
+      "description": "Boundary exactly 1c",
+      "qty": 1,
+      "cost": 1.0,
+      "cost_per_item": 1.01,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 2,
+      "description": "17 comics",
+      "qty": 17,
+      "cost": 4.65,
+      "cost_per_item": 0.2735,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 3,
+      "description": "Blank cost",
+      "qty": 3,
+      "cost": 7.5,
+      "cost_per_item": 2.5,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 4,
+      "description": "Split remainder",
+      "qty": 1,
+      "cost": 0.33,
+      "cost_per_item": 0.335,
+      "status": "active",
+      "parent_id": null
+    }
+  ],
+  "expenses": 1,
+  "report": []
+}

@@ -1,0 +1,69 @@
+{
+  "items": [
+    {
+      "row_id": 1,
+      "description": "Halo 3",
+      "qty": 1,
+      "cost": 10.0,
+      "cost_per_item": 10.0,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 2,
+      "description": "DVD lot",
+      "qty": 3,
+      "cost": 6.0,
+      "cost_per_item": 2.0,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 3,
+      "description": "DVD lot",
+      "qty": 2,
+      "cost": 4.0,
+      "cost_per_item": 2.0,
+      "status": "sold",
+      "parent_id": 2
+    },
+    {
+      "row_id": 4,
+      "description": "CD set",
+      "qty": 3,
+      "cost": 12.0,
+      "cost_per_item": 4.0,
+      "status": "sold",
+      "parent_id": null
+    },
+    {
+      "row_id": 5,
+      "description": "VHS bulk",
+      "qty": 10,
+      "cost": 15.0,
+      "cost_per_item": 1.5,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 6,
+      "description": "Book pair",
+      "qty": 2,
+      "cost": 14.5,
+      "cost_per_item": 7.25,
+      "status": "personal",
+      "parent_id": null
+    },
+    {
+      "row_id": 7,
+      "description": "Blu-ray",
+      "qty": 4,
+      "cost": 12.0,
+      "cost_per_item": 3.0,
+      "status": "active",
+      "parent_id": null
+    }
+  ],
+  "expenses": 1,
+  "report": []
+}

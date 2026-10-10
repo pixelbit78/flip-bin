@@ -1,0 +1,33 @@
+{
+  "items": [
+    {
+      "row_id": 1,
+      "description": "95 comics from 7miletreasures",
+      "qty": 1,
+      "cost": 108.3,
+      "cost_per_item": 108.3,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 2,
+      "description": "17 comics",
+      "qty": 1,
+      "cost": 4.65,
+      "cost_per_item": 4.65,
+      "status": "active",
+      "parent_id": null
+    },
+    {
+      "row_id": 3,
+      "description": "QA single",
+      "qty": 1,
+      "cost": 10.0,
+      "cost_per_item": 10.0,
+      "status": "sold",
+      "parent_id": null
+    }
+  ],
+  "expenses": 1,
+  "report": []
+}
