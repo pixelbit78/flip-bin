@@ -25,6 +25,7 @@ dependencies:
   url_launcher: ^6.3.2
   shared_preferences: ^2.5.5
   web: ^1.1.1
+  excel: ^4.0.6
 
 dev_dependencies:
   drift_dev: ^2.14.0

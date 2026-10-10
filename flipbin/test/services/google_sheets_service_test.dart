@@ -41,6 +41,9 @@ void main() {
         'Comments',
         'Sale Nbr',
         'Image URL',
+        'Qty',
+        'Cost Per Item',
+        'Parent Row',
       ]),
     );
   });
@@ -128,7 +131,7 @@ void main() {
     await service.syncToSheets(items, expenses);
 
     verifyNever(() => mockClient.createSpreadsheet(any(), any()));
-    verify(() => mockClient.clearSheet(existingId, 'Inventory!A:M')).called(1);
+    verify(() => mockClient.clearSheet(existingId, 'Inventory!A:P')).called(1);
     verify(() => mockClient.clearSheet(existingId, 'Expenses!A:J')).called(1);
     verify(() => mockClient.batchUpdateValues(existingId, any())).called(1);
   });
@@ -192,7 +195,7 @@ void main() {
     const sheetId = 'test-sheet-789';
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => sheetId);
-    when(() => mockClient.getValues(sheetId, 'Inventory!A1:M')).thenAnswer(
+    when(() => mockClient.getValues(sheetId, 'Inventory!A1:P')).thenAnswer(
       (_) async => [
         GoogleSheetsService.inventoryHeaders,
         [
@@ -280,7 +283,7 @@ void main() {
     const renamedId = 'new-renamed-id';
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => renamedId);
-    when(() => mockClient.getValues(renamedId, 'Inventory!A1:M'))
+    when(() => mockClient.getValues(renamedId, 'Inventory!A1:P'))
         .thenAnswer((_) async => [GoogleSheetsService.inventoryHeaders]);
     when(() => mockClient.getValues(renamedId, 'Expenses!A1:J'))
         .thenAnswer((_) async => [GoogleSheetsService.expenseHeaders]);
@@ -290,7 +293,7 @@ void main() {
     expect(data.spreadsheetId, equals(renamedId));
     verify(() => mockClient.findSpreadsheetId('FlipBin Export')).called(1);
     verifyNever(() => mockClient.getValues(staleId, any()));
-    verify(() => mockClient.getValues(renamedId, 'Inventory!A1:M')).called(1);
+    verify(() => mockClient.getValues(renamedId, 'Inventory!A1:P')).called(1);
   });
 
   test('import throws when spreadsheet missing by name and stored ID', () async {
@@ -339,14 +342,15 @@ void main() {
     ).captured.single as List<sheets.ValueRange>;
     final inventory = captured.first.values!;
     expect(inventory.first, equals(GoogleSheetsService.inventoryHeaders));
-    expect(inventory[1].last, equals('https://cdn.example.com/cover.jpg'));
+    expect(inventory[1][12], equals('https://cdn.example.com/cover.jpg'));
+    expect(inventory[1].sublist(13), equals(['1', '10.00', '']));
   });
 
   test('importFromSheets skips rows with empty descriptions', () async {
     const sheetId = 'test-sheet-789';
     when(() => mockClient.findSpreadsheetId('FlipBin Export'))
         .thenAnswer((_) async => sheetId);
-    when(() => mockClient.getValues(sheetId, 'Inventory!A1:M')).thenAnswer(
+    when(() => mockClient.getValues(sheetId, 'Inventory!A1:P')).thenAnswer(
       (_) async => [
         GoogleSheetsService.inventoryHeaders,
         ['01/15/2026', '', '', '', '', '', '', '', '', '', '', '', ''],

@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flipbin/config/env.dart';
 
 /// Persists Google session hints and spreadsheet ID across cold starts.
 ///
@@ -6,14 +7,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// a reload within that window can call Sheets/Drive without a fresh popup.
 /// Identity restore still uses [GoogleSignIn.signInSilently].
 class GoogleSessionStore {
-  static const _kEmail = 'flipbin.google.email';
-  static const _kDisplayName = 'flipbin.google.displayName';
-  static const _kAccessToken = 'flipbin.google.accessToken';
-  static const _kTokenExpiryMs = 'flipbin.google.tokenExpiryMs';
-  static const _kSpreadsheetId = 'flipbin.google.spreadsheetId';
-  static const _kLastSyncedMs = 'flipbin.google.lastSyncedMs';
-  static const _kLastImportedMs = 'flipbin.google.lastImportedMs';
-  static const _kAutoBackupEnabled = 'flipbin.autoBackup.enabled';
+  static final _kEmail = Env.prefsKey('flipbin.google.email');
+  static final _kDisplayName = Env.prefsKey('flipbin.google.displayName');
+  static final _kAccessToken = Env.prefsKey('flipbin.google.accessToken');
+  static final _kTokenExpiryMs = Env.prefsKey('flipbin.google.tokenExpiryMs');
+  static final _kSpreadsheetId = Env.prefsKey('flipbin.google.spreadsheetId');
+  static final _kLastSyncedMs = Env.prefsKey('flipbin.google.lastSyncedMs');
+  static final _kLastImportedMs = Env.prefsKey('flipbin.google.lastImportedMs');
+  static final _kAutoBackupEnabled = Env.prefsKey('flipbin.autoBackup.enabled');
 
   Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
 

@@ -1,12 +1,11 @@
-import 'package:drift/drift.dart';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
 import 'package:flipbin/database/database.dart';
-import 'package:flipbin/models/enums.dart';
+import 'package:flipbin/config/env.dart';
+import 'package:flipbin/services/sheet_mapping.dart' as mapping;
 import 'package:flipbin/services/google_session_store.dart';
 
 /// Abstract client interface for Google Sheets API operations.
@@ -220,34 +219,9 @@ class GoogleSheetsService {
 
   static const exportTitle = 'FlipBin Export';
 
-  static const inventoryHeaders = [
-    'Date Added',
-    'Barcode UPC',
-    'Item Description',
-    'Type',
-    'Cost',
-    'Platform',
-    'Status',
-    'Date Sold',
-    'Personal Use Date',
-    'DaysToSell',
-    'Comments',
-    'Sale Nbr',
-    'Image URL',
-  ];
+  static const inventoryHeaders = mapping.inventoryHeaders;
 
-  static const expenseHeaders = [
-    'Date',
-    'Merchant',
-    'Receipt Image',
-    'UPC',
-    'Item Desc',
-    'Qty',
-    'Price',
-    'Total',
-    'Type',
-    'With Tax',
-  ];
+  static const expenseHeaders = mapping.expenseHeaders;
 
   static const defaultClientId =
       '300135141102-ijqefa0enb2pm08i5kkgdnfbmpgp46tb.apps.googleusercontent.com';
@@ -265,7 +239,8 @@ class GoogleSheetsService {
     SheetsClient? sheetsClient,
     String? clientId,
     GoogleSessionStore? sessionStore,
-  })  : _googleSignIn = googleSignIn ??
+  })  : assert(kIsProd, 'Google disabled in $kFlipBinEnv build'),
+        _googleSignIn = _guardProd() ?? googleSignIn ??
             GoogleSignIn(
               clientId: (clientId != null && clientId.trim().isNotEmpty)
                   ? clientId.trim()
@@ -274,6 +249,14 @@ class GoogleSheetsService {
             ),
         _sheetsClient = sheetsClient,
         _sessionStore = sessionStore ?? GoogleSessionStore();
+
+  /// SPEC §12.2 layer 2: fail closed outside prod. Returns null in prod.
+  static GoogleSignIn? _guardProd() {
+    if (!kIsProd) {
+      throw StateError('Google disabled in $kFlipBinEnv build');
+    }
+    return null;
+  }
 
   GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
 
@@ -603,8 +586,8 @@ class GoogleSheetsService {
 
     if (!resolved.created) {
       try {
-        await client.clearSheet(spreadsheetId, 'Inventory!A:M');
-        await client.clearSheet(spreadsheetId, 'Expenses!A:J');
+        await client.clearSheet(spreadsheetId, 'Inventory!${mapping.inventoryRange}');
+        await client.clearSheet(spreadsheetId, 'Expenses!${mapping.expensesRange}');
       } catch (_) {
         // Prior file may have been deleted between resolve and clear — recover.
         final recovered = await resolveExportSpreadsheet(
@@ -614,53 +597,14 @@ class GoogleSheetsService {
         );
         spreadsheetId = recovered.id;
         if (!recovered.created) {
-          await client.clearSheet(spreadsheetId, 'Inventory!A:M');
-          await client.clearSheet(spreadsheetId, 'Expenses!A:J');
+          await client.clearSheet(spreadsheetId, 'Inventory!${mapping.inventoryRange}');
+          await client.clearSheet(spreadsheetId, 'Expenses!${mapping.expensesRange}');
         }
       }
     }
 
-    final dateFormat = DateFormat('MM/dd/yyyy');
-
-    final inventoryValues = <List<Object>>[
-      inventoryHeaders,
-      ...items.map((item) {
-        final days = item.daysToSell;
-        return [
-          dateFormat.format(item.dateAdded),
-          item.barcode ?? '',
-          item.itemDescription,
-          item.type.label,
-          item.cost.toStringAsFixed(2),
-          item.platform ?? '',
-          item.status.label,
-          item.dateSold != null ? dateFormat.format(item.dateSold!) : '',
-          item.status == ItemStatus.personal ? dateFormat.format(item.dateSold ?? item.dateAdded) : '',
-          days != null ? '$days' : '',
-          item.comments ?? '',
-          item.saleNumber ?? '',
-          item.imageUrl ?? '',
-        ];
-      }),
-    ];
-
-    final expenseValues = <List<Object>>[
-      expenseHeaders,
-      ...expenses.map((exp) {
-        return [
-          dateFormat.format(exp.date),
-          exp.merchant,
-          exp.receiptImagePath ?? '',
-          exp.upc ?? '',
-          exp.itemDescription,
-          exp.quantity,
-          exp.unitPrice.toStringAsFixed(2),
-          exp.total.toStringAsFixed(2),
-          exp.expenseType.label,
-          exp.taxAmount != null ? exp.taxAmount!.toStringAsFixed(2) : '',
-        ];
-      }),
-    ];
+    final inventoryValues = mapping.inventoryToRows(items);
+    final expenseValues = mapping.expensesToRows(expenses);
 
     final batchData = [
       sheets.ValueRange(range: 'Inventory!A1', values: inventoryValues),
@@ -686,156 +630,12 @@ class GoogleSheetsService {
     return spreadsheetId;
   }
 
-  static DateTime? _parseDate(dynamic val) {
-    if (val == null) return null;
-    final s = val.toString().trim();
-    if (s.isEmpty) return null;
-    try {
-      return DateFormat('MM/dd/yyyy').parse(s);
-    } catch (_) {
-      return DateTime.tryParse(s);
-    }
-  }
+  /// Parsed inventory rows (SPEC §7 rules via the shared mapping).
+  List<InventoryItemsCompanion> parseInventoryRows(List<List<Object?>> rows) =>
+      mapping.rowsToInventory(rows).items;
 
-  static double _parseDouble(dynamic val, [double defaultVal = 0.0]) {
-    if (val == null) return defaultVal;
-    final s = val.toString().replaceAll('\$', '').replaceAll(',', '').trim();
-    return double.tryParse(s) ?? defaultVal;
-  }
-
-  static int _parseInt(dynamic val, [int defaultVal = 1]) {
-    if (val == null) return defaultVal;
-    final s = val.toString().trim();
-    return int.tryParse(s) ?? defaultVal;
-  }
-
-  static String? _parseString(dynamic val) {
-    if (val == null) return null;
-    final s = val.toString().trim();
-    return s.isEmpty ? null : s;
-  }
-
-  List<InventoryItemsCompanion> parseInventoryRows(List<List<Object?>> rows) {
-    if (rows.length <= 1) return [];
-    final items = <InventoryItemsCompanion>[];
-
-    final headerRow =
-        rows[0].map((e) => e?.toString().trim().toLowerCase() ?? '').toList();
-    int col(String name, int fallback) {
-      final idx = headerRow.indexOf(name.toLowerCase());
-      return idx >= 0 ? idx : fallback;
-    }
-
-    final dateAddedCol = col('Date Added', 0);
-    final barcodeCol = col('Barcode UPC', 1);
-    final descCol = col('Item Description', 2);
-    final typeCol = col('Type', 3);
-    final costCol = col('Cost', 4);
-    final platformCol = col('Platform', 5);
-    final statusCol = col('Status', 6);
-    final dateSoldCol = col('Date Sold', 7);
-    final personalDateCol = col('Personal Use Date', 8);
-    final commentsCol = col('Comments', 10);
-    final saleNbrCol = col('Sale Nbr', 11);
-    final imageUrlCol = col('Image URL', 12);
-
-    for (var i = 1; i < rows.length; i++) {
-      final row = rows[i];
-      dynamic getCell(int idx) => idx < row.length ? row[idx] : null;
-
-      final desc = _parseString(getCell(descCol));
-      if (desc == null) continue;
-
-      final dateAdded = _parseDate(getCell(dateAddedCol)) ?? DateTime.now();
-      final barcode = _parseString(getCell(barcodeCol));
-      final type = ItemType.fromLabel(_parseString(getCell(typeCol)));
-      final cost = _parseDouble(getCell(costCol));
-      final platform = _parseString(getCell(platformCol));
-      final status = ItemStatus.fromLabel(_parseString(getCell(statusCol)));
-      DateTime? dateSold = _parseDate(getCell(dateSoldCol));
-      if (dateSold == null && status == ItemStatus.personal) {
-        dateSold = _parseDate(getCell(personalDateCol));
-      }
-      final comments = _parseString(getCell(commentsCol));
-      final saleNbr = _parseString(getCell(saleNbrCol));
-      final imageUrl = _parseString(getCell(imageUrlCol));
-
-      items.add(
-        InventoryItemsCompanion.insert(
-          dateAdded: dateAdded,
-          barcode: Value(barcode),
-          itemDescription: desc,
-          type: type,
-          cost: cost,
-          quantity: const Value(1),
-          platform: Value(platform),
-          status: status,
-          dateSold: Value(dateSold),
-          saleNumber: Value(saleNbr),
-          comments: Value(comments),
-          imageUrl: Value(imageUrl),
-        ),
-      );
-    }
-    return items;
-  }
-
-  List<ExpensesCompanion> parseExpenseRows(List<List<Object?>> rows) {
-    if (rows.length <= 1) return [];
-    final expenses = <ExpensesCompanion>[];
-
-    final headerRow =
-        rows[0].map((e) => e?.toString().trim().toLowerCase() ?? '').toList();
-    int col(String name, int fallback) {
-      final idx = headerRow.indexOf(name.toLowerCase());
-      return idx >= 0 ? idx : fallback;
-    }
-
-    final dateCol = col('Date', 0);
-    final merchantCol = col('Merchant', 1);
-    final receiptCol = col('Receipt Image', 2);
-    final upcCol = col('UPC', 3);
-    final descCol = col('Item Desc', 4);
-    final qtyCol = col('Qty', 5);
-    final priceCol = col('Price', 6);
-    final typeCol = col('Type', 8);
-    final taxCol = col('With Tax', 9);
-
-    for (var i = 1; i < rows.length; i++) {
-      final row = rows[i];
-      dynamic getCell(int idx) => idx < row.length ? row[idx] : null;
-
-      final desc = _parseString(getCell(descCol));
-      final merchant = _parseString(getCell(merchantCol));
-      if (desc == null && merchant == null) continue;
-
-      final date = _parseDate(getCell(dateCol)) ?? DateTime.now();
-      final receipt = _parseString(getCell(receiptCol));
-      final upc = _parseString(getCell(upcCol));
-      final qty = _parseInt(getCell(qtyCol), 1);
-      final price = _parseDouble(getCell(priceCol));
-      final type = ExpenseType.fromLabel(_parseString(getCell(typeCol)));
-      final taxRaw = getCell(taxCol);
-      final tax = taxRaw != null && taxRaw.toString().trim().isNotEmpty
-          ? _parseDouble(taxRaw)
-          : null;
-
-      expenses.add(
-        ExpensesCompanion.insert(
-          date: date,
-          merchant: merchant ?? 'Unknown',
-          receiptImagePath: Value(receipt),
-          upc: Value(upc),
-          itemDescription: desc ?? merchant ?? 'Expense',
-          quantity: Value(qty),
-          unitPrice: price,
-          expenseType: type,
-          taxAmount: Value(tax),
-        ),
-      );
-    }
-    return expenses;
-  }
+  List<ExpensesCompanion> parseExpenseRows(List<List<Object?>> rows) =>
+      mapping.rowsToExpenses(rows);
 
   /// Imports inventory and expenses from "FlipBin Export" spreadsheet.
   Future<SheetsImportData> importFromSheets({String? existingSpreadsheetId}) async {
@@ -854,11 +654,12 @@ class GoogleSheetsService {
     final spreadsheetId = resolved.id;
 
     final inventoryRows =
-        await client.getValues(spreadsheetId, 'Inventory!A1:M') ?? [];
+        await client.getValues(spreadsheetId, 'Inventory!A1:P') ?? [];
     final expenseRows =
         await client.getValues(spreadsheetId, 'Expenses!A1:J') ?? [];
 
-    final items = parseInventoryRows(inventoryRows);
+    final inv = mapping.rowsToInventory(inventoryRows);
+    final items = inv.items;
     final expenses = parseExpenseRows(expenseRows);
 
     try {
@@ -869,6 +670,7 @@ class GoogleSheetsService {
       items: items,
       expenses: expenses,
       spreadsheetId: spreadsheetId,
+      report: inv.report,
     );
   }
 }
@@ -881,10 +683,12 @@ class SheetsImportData {
   final List<InventoryItemsCompanion> items;
   final List<ExpensesCompanion> expenses;
   final String? spreadsheetId;
+  final List<String> report;
 
   const SheetsImportData({
     required this.items,
     required this.expenses,
     this.spreadsheetId,
+    this.report = const [],
   });
 }

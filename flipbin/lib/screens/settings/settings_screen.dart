@@ -4,16 +4,31 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flipbin/providers/sync_provider.dart';
 import 'package:flipbin/services/google_sheets_service.dart';
+import 'package:flipbin/config/env.dart';
+import 'package:flipbin/screens/settings/qa_settings_screen.dart';
+import 'package:flipbin/screens/settings/lot_review_screen.dart';
 
-/// Settings screen for managing Google Sheets synchronization and cloud backup.
-class SettingsScreen extends ConsumerStatefulWidget {
+/// Settings entry point: prod shows Google Sheets sync; any non-prod build
+/// shows local-file export/import and QA tools only (SPEC §12.2, §12.9).
+/// `kIsProd` is a compile-time const, so the unused branch is tree-shaken.
+class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
-  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+  Widget build(BuildContext context) {
+    return kIsProd ? const GoogleSettingsScreen() : const QaSettingsScreen();
+  }
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+/// Settings screen for managing Google Sheets synchronization and cloud backup.
+class GoogleSettingsScreen extends ConsumerStatefulWidget {
+  const GoogleSettingsScreen({super.key});
+
+  @override
+  ConsumerState<GoogleSettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<GoogleSettingsScreen> {
   late TextEditingController _clientIdController;
   bool _showClientIdConfig = false;
 
@@ -471,6 +486,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
             ),
+
+            const SizedBox(height: 16),
+            const ReviewLotsCard(),
 
             const SizedBox(height: 24),
 

@@ -12,6 +12,8 @@ import 'package:flipbin/screens/inventory/inventory_list_screen.dart';
 import 'package:flipbin/screens/inventory/item_detail_screen.dart';
 import 'package:flipbin/screens/scanner/scanner_screen.dart';
 import 'package:flipbin/screens/settings/settings_screen.dart';
+import 'package:flipbin/screens/settings/lot_review_screen.dart';
+import 'package:flipbin/config/env.dart';
 import 'package:flipbin/services/barcode_lookup_service.dart';
 import 'package:flipbin/providers/expense_provider.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
@@ -99,6 +101,12 @@ class FlipBinRouter {
           GoRoute(
             path: '/settings',
             builder: (context, state) => const SettingsScreen(),
+            routes: [
+              GoRoute(
+                path: 'lots',
+                builder: (context, state) => const LotReviewScreen(),
+              ),
+            ],
           ),
         ],
       ),
@@ -138,7 +146,8 @@ class _ScaffoldWithNavBarState extends ConsumerState<ScaffoldWithNavBar>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    // Google auto-backup is prod-only (SPEC §12.2 layer 3); compiled out in QA.
+    if (kIsProd && state == AppLifecycleState.resumed) {
       ref.read(syncProvider.notifier).maybeRunAutoBackup();
     }
   }

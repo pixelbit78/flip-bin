@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flipbin/config/env.dart';
 import 'package:flipbin/providers/database_provider.dart';
 import 'package:flipbin/providers/expense_provider.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
@@ -112,6 +113,8 @@ bool isGoogleAuthFailure(Object error) {
 
 /// Provider for [GoogleSheetsService].
 final googleSheetsServiceProvider = Provider<GoogleSheetsService>((ref) {
+  // Fail closed: the QA build never constructs the Google service.
+  if (!kIsProd) throw StateError('Google disabled in $kFlipBinEnv build');
   return GoogleSheetsService();
 });
 

@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flipbin/config/env.dart';
 
 /// Persists that the user has successfully granted camera access once.
 ///
@@ -6,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// settings). This flag is a UX hint so we skip the one-shot "Allow camera"
 /// overlay on reopen when the browser already remembers grant.
 class CameraPermissionStore {
-  static const _kAllowed = 'flipbin.camera.allowed';
+  static final _kAllowed = Env.prefsKey('flipbin.camera.allowed');
 
   Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
 
