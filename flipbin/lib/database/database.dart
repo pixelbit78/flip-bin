@@ -955,3 +955,22 @@ class FlipBinDatabase extends _$FlipBinDatabase {
     return impl.openConnection();
   }
 }
+
+/// Schema v1 DDL (pre-quantity), used by migration tests and the QA-only
+/// "Load legacy v1 fixture" tool (SPEC §12.9). Matches drift's v1 output.
+const List<String> kSchemaV1Ddl = [
+  'CREATE TABLE IF NOT EXISTS "inventory_items" ("id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, '
+      '"date_added" INTEGER NOT NULL, "barcode" TEXT NULL, "item_description" TEXT NOT NULL, '
+      '"type" TEXT NOT NULL, "cost" REAL NOT NULL, "quantity" INTEGER NOT NULL DEFAULT 1, '
+      '"platform" TEXT NULL, "status" TEXT NOT NULL, "date_sold" INTEGER NULL, '
+      '"sale_number" TEXT NULL, "comments" TEXT NULL, "image_url" TEXT NULL, '
+      '"lookup_name" TEXT NULL, "lookup_description" TEXT NULL)',
+  'CREATE TABLE IF NOT EXISTS "expenses" ("id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, '
+      '"date" INTEGER NOT NULL, "merchant" TEXT NOT NULL, "receipt_image_path" TEXT NULL, '
+      '"upc" TEXT NULL, "item_description" TEXT NOT NULL, "quantity" INTEGER NOT NULL DEFAULT 1, '
+      '"unit_price" REAL NOT NULL, "expense_type" TEXT NOT NULL, "tax_amount" REAL NULL)',
+  'CREATE TABLE IF NOT EXISTS "barcode_cache_entries" ("barcode" TEXT NOT NULL, '
+      '"product_name" TEXT NULL, "description" TEXT NULL, "image_url" TEXT NULL, '
+      '"category" TEXT NULL, "source" TEXT NOT NULL, "fetched_at" INTEGER NOT NULL, '
+      'PRIMARY KEY ("barcode"))',
+];
