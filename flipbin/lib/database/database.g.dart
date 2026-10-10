@@ -93,6 +93,18 @@ class $InventoryItemsTable extends InventoryItems
       type: DriftSqlType.int,
       requiredDuringInsert: false,
       defaultValue: const Constant(1));
+  static const VerificationMeta _costPerItemMeta =
+      const VerificationMeta('costPerItem');
+  @override
+  late final GeneratedColumn<double> costPerItem = GeneratedColumn<double>(
+      'cost_per_item', aliasedName, true,
+      type: DriftSqlType.double, requiredDuringInsert: false);
+  static const VerificationMeta _parentIdMeta =
+      const VerificationMeta('parentId');
+  @override
+  late final GeneratedColumn<int> parentId = GeneratedColumn<int>(
+      'parent_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   static const VerificationMeta _platformMeta =
       const VerificationMeta('platform');
   @override
@@ -149,6 +161,8 @@ class $InventoryItemsTable extends InventoryItems
         type,
         cost,
         quantity,
+        costPerItem,
+        parentId,
         platform,
         status,
         dateSold,
@@ -198,6 +212,16 @@ class $InventoryItemsTable extends InventoryItems
     if (data.containsKey('quantity')) {
       context.handle(_quantityMeta,
           quantity.isAcceptableOrUnknown(data['quantity']!, _quantityMeta));
+    }
+    if (data.containsKey('cost_per_item')) {
+      context.handle(
+          _costPerItemMeta,
+          costPerItem.isAcceptableOrUnknown(
+              data['cost_per_item']!, _costPerItemMeta));
+    }
+    if (data.containsKey('parent_id')) {
+      context.handle(_parentIdMeta,
+          parentId.isAcceptableOrUnknown(data['parent_id']!, _parentIdMeta));
     }
     if (data.containsKey('platform')) {
       context.handle(_platformMeta,
@@ -257,6 +281,10 @@ class $InventoryItemsTable extends InventoryItems
           .read(DriftSqlType.double, data['${effectivePrefix}cost'])!,
       quantity: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}quantity'])!,
+      costPerItem: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}cost_per_item']),
+      parentId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}parent_id']),
       platform: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}platform']),
       status: $InventoryItemsTable.$converterstatus.fromSql(attachedDatabase
@@ -294,8 +322,17 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
   final String? barcode;
   final String itemDescription;
   final ItemType type;
+
+  /// Line total (sheet `Cost`), derived = round(qty × costPerItem, 2) on user
+  /// edits; preserved exactly by system operations (SPEC §3.2).
   final double cost;
   final int quantity;
+
+  /// Canonical per-item cost, 4 dp (schema v2). Null only before backfill.
+  final double? costPerItem;
+
+  /// Split child (Sold) → source row id (schema v2).
+  final int? parentId;
   final String? platform;
   final ItemStatus status;
   final DateTime? dateSold;
@@ -312,6 +349,8 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
       required this.type,
       required this.cost,
       required this.quantity,
+      this.costPerItem,
+      this.parentId,
       this.platform,
       required this.status,
       this.dateSold,
@@ -335,6 +374,12 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
     }
     map['cost'] = Variable<double>(cost);
     map['quantity'] = Variable<int>(quantity);
+    if (!nullToAbsent || costPerItem != null) {
+      map['cost_per_item'] = Variable<double>(costPerItem);
+    }
+    if (!nullToAbsent || parentId != null) {
+      map['parent_id'] = Variable<int>(parentId);
+    }
     if (!nullToAbsent || platform != null) {
       map['platform'] = Variable<String>(platform);
     }
@@ -374,6 +419,12 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
       type: Value(type),
       cost: Value(cost),
       quantity: Value(quantity),
+      costPerItem: costPerItem == null && nullToAbsent
+          ? const Value.absent()
+          : Value(costPerItem),
+      parentId: parentId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(parentId),
       platform: platform == null && nullToAbsent
           ? const Value.absent()
           : Value(platform),
@@ -411,6 +462,8 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
           .fromJson(serializer.fromJson<String>(json['type'])),
       cost: serializer.fromJson<double>(json['cost']),
       quantity: serializer.fromJson<int>(json['quantity']),
+      costPerItem: serializer.fromJson<double?>(json['costPerItem']),
+      parentId: serializer.fromJson<int?>(json['parentId']),
       platform: serializer.fromJson<String?>(json['platform']),
       status: $InventoryItemsTable.$converterstatus
           .fromJson(serializer.fromJson<String>(json['status'])),
@@ -435,6 +488,8 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
           .toJson<String>($InventoryItemsTable.$convertertype.toJson(type)),
       'cost': serializer.toJson<double>(cost),
       'quantity': serializer.toJson<int>(quantity),
+      'costPerItem': serializer.toJson<double?>(costPerItem),
+      'parentId': serializer.toJson<int?>(parentId),
       'platform': serializer.toJson<String?>(platform),
       'status': serializer
           .toJson<String>($InventoryItemsTable.$converterstatus.toJson(status)),
@@ -455,6 +510,8 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
           ItemType? type,
           double? cost,
           int? quantity,
+          Value<double?> costPerItem = const Value.absent(),
+          Value<int?> parentId = const Value.absent(),
           Value<String?> platform = const Value.absent(),
           ItemStatus? status,
           Value<DateTime?> dateSold = const Value.absent(),
@@ -471,6 +528,8 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
         type: type ?? this.type,
         cost: cost ?? this.cost,
         quantity: quantity ?? this.quantity,
+        costPerItem: costPerItem.present ? costPerItem.value : this.costPerItem,
+        parentId: parentId.present ? parentId.value : this.parentId,
         platform: platform.present ? platform.value : this.platform,
         status: status ?? this.status,
         dateSold: dateSold.present ? dateSold.value : this.dateSold,
@@ -493,6 +552,9 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
       type: data.type.present ? data.type.value : this.type,
       cost: data.cost.present ? data.cost.value : this.cost,
       quantity: data.quantity.present ? data.quantity.value : this.quantity,
+      costPerItem:
+          data.costPerItem.present ? data.costPerItem.value : this.costPerItem,
+      parentId: data.parentId.present ? data.parentId.value : this.parentId,
       platform: data.platform.present ? data.platform.value : this.platform,
       status: data.status.present ? data.status.value : this.status,
       dateSold: data.dateSold.present ? data.dateSold.value : this.dateSold,
@@ -518,6 +580,8 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
           ..write('type: $type, ')
           ..write('cost: $cost, ')
           ..write('quantity: $quantity, ')
+          ..write('costPerItem: $costPerItem, ')
+          ..write('parentId: $parentId, ')
           ..write('platform: $platform, ')
           ..write('status: $status, ')
           ..write('dateSold: $dateSold, ')
@@ -539,6 +603,8 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
       type,
       cost,
       quantity,
+      costPerItem,
+      parentId,
       platform,
       status,
       dateSold,
@@ -558,6 +624,8 @@ class InventoryItem extends DataClass implements Insertable<InventoryItem> {
           other.type == this.type &&
           other.cost == this.cost &&
           other.quantity == this.quantity &&
+          other.costPerItem == this.costPerItem &&
+          other.parentId == this.parentId &&
           other.platform == this.platform &&
           other.status == this.status &&
           other.dateSold == this.dateSold &&
@@ -576,6 +644,8 @@ class InventoryItemsCompanion extends UpdateCompanion<InventoryItem> {
   final Value<ItemType> type;
   final Value<double> cost;
   final Value<int> quantity;
+  final Value<double?> costPerItem;
+  final Value<int?> parentId;
   final Value<String?> platform;
   final Value<ItemStatus> status;
   final Value<DateTime?> dateSold;
@@ -592,6 +662,8 @@ class InventoryItemsCompanion extends UpdateCompanion<InventoryItem> {
     this.type = const Value.absent(),
     this.cost = const Value.absent(),
     this.quantity = const Value.absent(),
+    this.costPerItem = const Value.absent(),
+    this.parentId = const Value.absent(),
     this.platform = const Value.absent(),
     this.status = const Value.absent(),
     this.dateSold = const Value.absent(),
@@ -609,6 +681,8 @@ class InventoryItemsCompanion extends UpdateCompanion<InventoryItem> {
     required ItemType type,
     required double cost,
     this.quantity = const Value.absent(),
+    this.costPerItem = const Value.absent(),
+    this.parentId = const Value.absent(),
     this.platform = const Value.absent(),
     required ItemStatus status,
     this.dateSold = const Value.absent(),
@@ -630,6 +704,8 @@ class InventoryItemsCompanion extends UpdateCompanion<InventoryItem> {
     Expression<String>? type,
     Expression<double>? cost,
     Expression<int>? quantity,
+    Expression<double>? costPerItem,
+    Expression<int>? parentId,
     Expression<String>? platform,
     Expression<String>? status,
     Expression<DateTime>? dateSold,
@@ -647,6 +723,8 @@ class InventoryItemsCompanion extends UpdateCompanion<InventoryItem> {
       if (type != null) 'type': type,
       if (cost != null) 'cost': cost,
       if (quantity != null) 'quantity': quantity,
+      if (costPerItem != null) 'cost_per_item': costPerItem,
+      if (parentId != null) 'parent_id': parentId,
       if (platform != null) 'platform': platform,
       if (status != null) 'status': status,
       if (dateSold != null) 'date_sold': dateSold,
@@ -666,6 +744,8 @@ class InventoryItemsCompanion extends UpdateCompanion<InventoryItem> {
       Value<ItemType>? type,
       Value<double>? cost,
       Value<int>? quantity,
+      Value<double?>? costPerItem,
+      Value<int?>? parentId,
       Value<String?>? platform,
       Value<ItemStatus>? status,
       Value<DateTime?>? dateSold,
@@ -682,6 +762,8 @@ class InventoryItemsCompanion extends UpdateCompanion<InventoryItem> {
       type: type ?? this.type,
       cost: cost ?? this.cost,
       quantity: quantity ?? this.quantity,
+      costPerItem: costPerItem ?? this.costPerItem,
+      parentId: parentId ?? this.parentId,
       platform: platform ?? this.platform,
       status: status ?? this.status,
       dateSold: dateSold ?? this.dateSold,
@@ -717,6 +799,12 @@ class InventoryItemsCompanion extends UpdateCompanion<InventoryItem> {
     }
     if (quantity.present) {
       map['quantity'] = Variable<int>(quantity.value);
+    }
+    if (costPerItem.present) {
+      map['cost_per_item'] = Variable<double>(costPerItem.value);
+    }
+    if (parentId.present) {
+      map['parent_id'] = Variable<int>(parentId.value);
     }
     if (platform.present) {
       map['platform'] = Variable<String>(platform.value);
@@ -756,6 +844,8 @@ class InventoryItemsCompanion extends UpdateCompanion<InventoryItem> {
           ..write('type: $type, ')
           ..write('cost: $cost, ')
           ..write('quantity: $quantity, ')
+          ..write('costPerItem: $costPerItem, ')
+          ..write('parentId: $parentId, ')
           ..write('platform: $platform, ')
           ..write('status: $status, ')
           ..write('dateSold: $dateSold, ')
@@ -1707,6 +1797,8 @@ typedef $$InventoryItemsTableCreateCompanionBuilder = InventoryItemsCompanion
   required ItemType type,
   required double cost,
   Value<int> quantity,
+  Value<double?> costPerItem,
+  Value<int?> parentId,
   Value<String?> platform,
   required ItemStatus status,
   Value<DateTime?> dateSold,
@@ -1725,6 +1817,8 @@ typedef $$InventoryItemsTableUpdateCompanionBuilder = InventoryItemsCompanion
   Value<ItemType> type,
   Value<double> cost,
   Value<int> quantity,
+  Value<double?> costPerItem,
+  Value<int?> parentId,
   Value<String?> platform,
   Value<ItemStatus> status,
   Value<DateTime?> dateSold,
@@ -1767,6 +1861,12 @@ class $$InventoryItemsTableFilterComposer
 
   ColumnFilters<int> get quantity => $composableBuilder(
       column: $table.quantity, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get costPerItem => $composableBuilder(
+      column: $table.costPerItem, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get parentId => $composableBuilder(
+      column: $table.parentId, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get platform => $composableBuilder(
       column: $table.platform, builder: (column) => ColumnFilters(column));
@@ -1827,6 +1927,12 @@ class $$InventoryItemsTableOrderingComposer
   ColumnOrderings<int> get quantity => $composableBuilder(
       column: $table.quantity, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<double> get costPerItem => $composableBuilder(
+      column: $table.costPerItem, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get parentId => $composableBuilder(
+      column: $table.parentId, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get platform => $composableBuilder(
       column: $table.platform, builder: (column) => ColumnOrderings(column));
 
@@ -1882,6 +1988,12 @@ class $$InventoryItemsTableAnnotationComposer
 
   GeneratedColumn<int> get quantity =>
       $composableBuilder(column: $table.quantity, builder: (column) => column);
+
+  GeneratedColumn<double> get costPerItem => $composableBuilder(
+      column: $table.costPerItem, builder: (column) => column);
+
+  GeneratedColumn<int> get parentId =>
+      $composableBuilder(column: $table.parentId, builder: (column) => column);
 
   GeneratedColumn<String> get platform =>
       $composableBuilder(column: $table.platform, builder: (column) => column);
@@ -1942,6 +2054,8 @@ class $$InventoryItemsTableTableManager extends RootTableManager<
             Value<ItemType> type = const Value.absent(),
             Value<double> cost = const Value.absent(),
             Value<int> quantity = const Value.absent(),
+            Value<double?> costPerItem = const Value.absent(),
+            Value<int?> parentId = const Value.absent(),
             Value<String?> platform = const Value.absent(),
             Value<ItemStatus> status = const Value.absent(),
             Value<DateTime?> dateSold = const Value.absent(),
@@ -1959,6 +2073,8 @@ class $$InventoryItemsTableTableManager extends RootTableManager<
             type: type,
             cost: cost,
             quantity: quantity,
+            costPerItem: costPerItem,
+            parentId: parentId,
             platform: platform,
             status: status,
             dateSold: dateSold,
@@ -1976,6 +2092,8 @@ class $$InventoryItemsTableTableManager extends RootTableManager<
             required ItemType type,
             required double cost,
             Value<int> quantity = const Value.absent(),
+            Value<double?> costPerItem = const Value.absent(),
+            Value<int?> parentId = const Value.absent(),
             Value<String?> platform = const Value.absent(),
             required ItemStatus status,
             Value<DateTime?> dateSold = const Value.absent(),
@@ -1993,6 +2111,8 @@ class $$InventoryItemsTableTableManager extends RootTableManager<
             type: type,
             cost: cost,
             quantity: quantity,
+            costPerItem: costPerItem,
+            parentId: parentId,
             platform: platform,
             status: status,
             dateSold: dateSold,

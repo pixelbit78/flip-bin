@@ -4,14 +4,19 @@ import 'package:flipbin/database/database.dart';
 import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/providers/database_provider.dart';
 
-/// Total cost KPI: sum(cost × qty) for ALL Active items.
-final activeTotalCostTimesQtyProvider = StreamProvider<double>((ref) {
+/// Total cost KPI: Σ stored line totals (`cost`) for ALL Active rows.
+///
+/// Each row's `cost` already equals round(qty × cost per item, 2), so it is
+/// never multiplied by qty again (SPEC §6).
+final activeTotalCostProvider = StreamProvider<double>((ref) {
   final db = ref.watch(databaseProvider);
-  return db.inventoryItemsDao
-      .watchTotalCostTimesQtyByStatus(ItemStatus.active);
+  return db.inventoryItemsDao.watchTotalCostByStatus(ItemStatus.active);
 });
 
-/// Total active KPI: count of Active inventory items.
+/// Back-compat alias.
+final activeTotalCostTimesQtyProvider = activeTotalCostProvider;
+
+/// Total active KPI: units (Σ qty) of Active inventory.
 final activeItemCountProvider = StreamProvider<int>((ref) {
   final db = ref.watch(databaseProvider);
   return db.inventoryItemsDao.watchCountByStatus(ItemStatus.active);

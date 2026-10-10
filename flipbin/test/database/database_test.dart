@@ -341,12 +341,7 @@ void main() {
         ),
       );
 
-      final total = await db.inventoryItemsDao
-          .watchTotalCostTimesQtyByStatus(ItemStatus.active)
-          .first;
-      expect(total, equals(30.0));
-
-      // Legacy sum(cost) stays cost-only
+      // v2: cost is the stored line total; Total cost = Σ cost (no × qty).
       final costOnly =
           await db.inventoryItemsDao.watchTotalCostByStatus(ItemStatus.active).first;
       expect(costOnly, equals(10.0));
@@ -404,7 +399,7 @@ void main() {
       }
 
       await add('Fresh', 10, 100); // ignored (<30)
-      await add('Mid', 45, 10, qty: 2); // 30–59: $20
+      await add('Mid', 45, 20, qty: 2); // 30–59: $20 line total, 2 units
       await add('Old', 70, 30); // 60–89: $30
       await add('Ancient', 100, 40); // 90+: $40
       await db.inventoryItemsDao.insertItem(
@@ -419,11 +414,11 @@ void main() {
       );
 
       final aging = await db.inventoryItemsDao.watchAgingCapital().first;
-      expect(aging.itemCount, equals(3));
-      expect(aging.totalCostTimesQty, equals(90.0));
+      expect(aging.itemCount, equals(4)); // units
+      expect(aging.totalCostTimesQty, equals(90.0)); // Σ cost
 
       final buckets = await db.inventoryItemsDao.watchAgingBuckets().first;
-      expect(buckets.bucket30to59.itemCount, equals(1));
+      expect(buckets.bucket30to59.itemCount, equals(2));
       expect(buckets.bucket30to59.totalCostTimesQty, equals(20.0));
       expect(buckets.bucket60to89.totalCostTimesQty, equals(30.0));
       expect(buckets.bucket90plus.totalCostTimesQty, equals(40.0));

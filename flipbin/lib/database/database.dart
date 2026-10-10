@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'connection/connection.dart' as impl;
 import 'package:flipbin/models/enums.dart';
 import 'package:flipbin/utils/barcode_normalize.dart';
+import 'package:flipbin/utils/cost_field.dart';
 
 part 'database.g.dart';
 
@@ -12,8 +13,16 @@ class InventoryItems extends Table {
   TextColumn get barcode => text().nullable()();
   TextColumn get itemDescription => text()();
   TextColumn get type => textEnum<ItemType>()();
+  /// Line total (sheet `Cost`), derived = round(qty × costPerItem, 2) on user
+  /// edits; preserved exactly by system operations (SPEC §3.2).
   RealColumn get cost => real()();
   IntColumn get quantity => integer().withDefault(const Constant(1))();
+
+  /// Canonical per-item cost, 4 dp (schema v2). Null only before backfill.
+  RealColumn get costPerItem => real().nullable()();
+
+  /// Split child (Sold) → source row id (schema v2).
+  IntColumn get parentId => integer().nullable()();
   TextColumn get platform => text().nullable()();
   TextColumn get status => textEnum<ItemStatus>()();
   DateTimeColumn get dateSold => dateTime().nullable()();
@@ -54,6 +63,9 @@ class BarcodeCacheEntries extends Table {
 
 /// Extension for computed fields on [InventoryItem].
 extension InventoryItemExtension on InventoryItem {
+  /// Per-item cost, falling back to cost ÷ qty for un-backfilled rows.
+  double get cpi => costPerItem ?? cpiFromTotal(cost, quantity);
+
   int? get daysToSell {
     if (dateSold == null) return null;
     return dateSold!.difference(dateAdded).inDays;
@@ -63,6 +75,13 @@ extension InventoryItemExtension on InventoryItem {
 /// Extension for computed fields on [Expense].
 extension ExpenseExtension on Expense {
   double get total => quantity * unitPrice;
+}
+
+/// Review-lots candidate (SPEC §4.3).
+class LotSuggestion {
+  final InventoryItem item;
+  final int suggestedQty;
+  const LotSuggestion({required this.item, required this.suggestedQty});
 }
 
 /// Aging capital KPI: dollars tied up in Active stock at/above a min age.
@@ -273,12 +292,192 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
     return (select(inventoryItems)..where((tbl) => tbl.id.equals(id))).getSingle();
   }
 
+  /// Insert. When [item] carries `costPerItem`, `cost` is derived as
+  /// round(qty × cpi, 2) (user input path). Without it, cost is kept and
+  /// cpi = round4(cost / qty) (system path). See SPEC §3.2.
   Future<int> insertItem(InventoryItemsCompanion item) {
-    return into(inventoryItems).insert(item);
+    return into(inventoryItems).insert(applyCostRulesCompanion(item));
   }
 
+  /// Plain replace; callers that changed qty / cpi should pass the row
+  /// through [applyUserCostEdit] first.
   Future<bool> updateItem(InventoryItem item) {
-    return update(inventoryItems).replace(item);
+    final safe = item.cost < 0 ? item.copyWith(cost: 0) : item;
+    return update(inventoryItems).replace(
+      safe.costPerItem == null
+          ? safe.copyWith(costPerItem: Value(cpiFromTotal(safe.cost, safe.quantity)))
+          : safe,
+    );
+  }
+
+  /// SPEC §3.2 single write rule for companions.
+  static InventoryItemsCompanion applyCostRulesCompanion(
+      InventoryItemsCompanion item) {
+    var qty = item.quantity.present ? item.quantity.value : 1;
+    if (qty < 1) qty = 1;
+    if (qty > kMaxQty) qty = kMaxQty;
+    final cpiVal = item.costPerItem.present ? item.costPerItem.value : null;
+    if (cpiVal != null) {
+      final cpi = round4(cpiVal < 0 ? 0 : cpiVal);
+      return item.copyWith(
+        quantity: Value(qty),
+        costPerItem: Value(cpi),
+        cost: Value(lineTotal(qty, cpi)),
+      );
+    }
+    final cost = item.cost.present ? item.cost.value : 0.0;
+    final c = round2(cost < 0 ? 0 : cost);
+    return item.copyWith(
+      quantity: Value(qty),
+      cost: Value(c),
+      costPerItem: Value(cpiFromTotal(c, qty)),
+    );
+  }
+
+  /// User edited qty and/or cost per item: recompute the line total.
+  static InventoryItem applyUserCostEdit(InventoryItem item,
+      {required int qty, required double cpi}) {
+    final q = qty.clamp(1, kMaxQty);
+    final p = round4(cpi < 0 ? 0 : cpi);
+    return item.copyWith(
+      quantity: q,
+      costPerItem: Value(p),
+      cost: lineTotal(q, p),
+    );
+  }
+
+  /// Sell [n] units of row [id] (SPEC §3.4). n == qty flips the row to Sold;
+  /// n < qty splits off a Sold child. Returns the id of the Sold row.
+  Future<int> sellUnits(int id, int n, {DateTime? date}) {
+    return db.transaction(() async {
+      final parent = await getById(id);
+      if (parent.status == ItemStatus.sold) {
+        throw StateError('Item $id is already sold');
+      }
+      final r = parent.quantity;
+      if (n < 1 || n > r) {
+        throw ArgumentError.value(n, 'n', 'must be 1..$r');
+      }
+      final sold = date ?? DateTime.now();
+      if (n == r) {
+        await update(inventoryItems).replace(parent.copyWith(
+          status: ItemStatus.sold,
+          dateSold: Value(sold),
+          costPerItem: Value(parent.cpi),
+        ));
+        return id;
+      }
+      final cpi = parent.cpi;
+      final money = splitMoney(parentTotal: parent.cost, cpi: cpi, n: n);
+      await update(inventoryItems).replace(parent.copyWith(
+        quantity: r - n,
+        cost: money.parentCost,
+        costPerItem: Value(cpi),
+      ));
+      return into(inventoryItems).insert(InventoryItemsCompanion.insert(
+        dateAdded: parent.dateAdded,
+        barcode: Value(parent.barcode),
+        itemDescription: parent.itemDescription,
+        type: parent.type,
+        cost: money.childCost,
+        quantity: Value(n),
+        costPerItem: Value(cpi),
+        parentId: Value(parent.id),
+        platform: Value(parent.platform),
+        status: ItemStatus.sold,
+        dateSold: Value(sold),
+        saleNumber: Value(parent.saleNumber),
+        comments: Value(parent.comments),
+        imageUrl: Value(parent.imageUrl),
+        lookupName: Value(parent.lookupName),
+        lookupDescription: Value(parent.lookupDescription),
+      ));
+    });
+  }
+
+  /// Un-sell a Sold row. A split child with a live, unsold parent merges back
+  /// (qty and totals added; child deleted); otherwise the row flips to Active
+  /// and dateSold is cleared. Returns the id of the resulting live row.
+  Future<int> unsell(int soldId) {
+    return db.transaction(() async {
+      final child = await getById(soldId);
+      if (child.status != ItemStatus.sold) return soldId;
+      final parentId = child.parentId;
+      InventoryItem? parent;
+      if (parentId != null) {
+        parent = await (select(inventoryItems)
+              ..where((t) => t.id.equals(parentId)))
+            .getSingleOrNull();
+      }
+      if (parent == null || parent.status == ItemStatus.sold) {
+        await update(inventoryItems).replace(child.copyWith(
+          status: ItemStatus.active,
+          dateSold: const Value(null),
+          parentId: const Value(null),
+        ));
+        return soldId;
+      }
+      final qty = parent.quantity + child.quantity;
+      final costCents = toCents(parent.cost) + toCents(child.cost);
+      final sameCpi = toBp(parent.cpi) == toBp(child.cpi);
+      final cpi = sameCpi ? parent.cpi : cpiFromTotal(costCents / 100, qty);
+      await update(inventoryItems).replace(parent.copyWith(
+        quantity: qty > kMaxQty ? kMaxQty : qty,
+        cost: centsToDollars(costCents),
+        costPerItem: Value(cpi),
+      ));
+      await deleteItem(soldId);
+      return parent.id;
+    });
+  }
+
+  /// Number of units already split off (Sold children) per parent id.
+  Future<Map<int, int>> soldChildUnitsByParent() async {
+    final rows = await (select(inventoryItems)
+          ..where((t) => t.parentId.isNotNull()))
+        .get();
+    final out = <int, int>{};
+    for (final r in rows) {
+      out[r.parentId!] = (out[r.parentId!] ?? 0) + r.quantity;
+    }
+    return out;
+  }
+
+  Stream<Map<int, int>> watchSoldChildUnitsByParent() {
+    return (select(inventoryItems)..where((t) => t.parentId.isNotNull()))
+        .watch()
+        .map((rows) {
+      final out = <int, int>{};
+      for (final r in rows) {
+        out[r.parentId!] = (out[r.parentId!] ?? 0) + r.quantity;
+      }
+      return out;
+    });
+  }
+
+  /// Review-lots candidates: qty-1, non-split rows whose description carries
+  /// a count (SPEC §4.3). Sold rows included (units history), dismissals
+  /// are filtered by the caller.
+  Future<List<LotSuggestion>> lotSuggestions() async {
+    final rows = await (select(inventoryItems)
+          ..where((t) => t.quantity.equals(1) & t.parentId.isNull())
+          ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)]))
+        .get();
+    return [
+      for (final r in rows)
+        if (suggestQtyFromDescription(r.itemDescription) case final n?)
+          LotSuggestion(item: r, suggestedQty: n),
+    ];
+  }
+
+  /// Review lots apply: qty = N, cpi = round4(cost/N), cost unchanged.
+  Future<void> applyLotQty(int id, int n) async {
+    final item = await getById(id);
+    final q = n.clamp(1, kMaxQty);
+    await update(inventoryItems).replace(item.copyWith(
+      quantity: q,
+      costPerItem: Value(cpiFromTotal(item.cost, q)),
+    ));
   }
 
   Future<int> deleteItem(int id) {
@@ -317,8 +516,9 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
     return query.watch();
   }
 
+  /// Units (Σ qty) with [status].
   Future<int> countByStatus(ItemStatus status) async {
-    final countExp = inventoryItems.id.count();
+    final countExp = inventoryItems.quantity.sum();
     final query = selectOnly(inventoryItems)
       ..addColumns([countExp])
       ..where(inventoryItems.status.equalsValue(status));
@@ -326,8 +526,9 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
     return row.read(countExp) ?? 0;
   }
 
+  /// Units (Σ qty) with [status].
   Stream<int> watchCountByStatus(ItemStatus status) {
-    final countExp = inventoryItems.id.count();
+    final countExp = inventoryItems.quantity.sum();
     final query = selectOnly(inventoryItems)
       ..addColumns([countExp])
       ..where(inventoryItems.status.equalsValue(status));
@@ -361,33 +562,23 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
     return (select(inventoryItems)..orderBy([(tbl) => OrderingTerm.asc(tbl.dateAdded)])).get();
   }
 
-  /// Sum of `cost × quantity` for items with [status] (dashboard Total cost KPI).
-  ///
-  /// Distinct from [watchTotalCostByStatus], which sums `cost` only.
-  Stream<double> watchTotalCostTimesQtyByStatus(ItemStatus status) {
-    final query = select(inventoryItems)
-      ..where((tbl) => tbl.status.equalsValue(status));
-    return query.watch().map(
-          (items) => items.fold<double>(
-            0.0,
-            (sum, item) => sum + item.cost * item.quantity,
-          ),
-        );
-  }
-
   /// Mean of `(dateSold − dateAdded).inDays` for Sold items with [dateSold] set.
   /// Emits `null` when there are no qualifying Sold items.
   Stream<double?> watchAvgDaysToSell() {
     final query = select(inventoryItems)
       ..where((tbl) => tbl.status.equalsValue(ItemStatus.sold));
     return query.watch().map((items) {
-      final days = <int>[];
+      var sum = 0;
+      var units = 0;
       for (final item in items) {
         final d = item.daysToSell;
-        if (d != null) days.add(d);
+        if (d != null) {
+          sum += d * item.quantity;
+          units += item.quantity;
+        }
       }
-      if (days.isEmpty) return null;
-      return days.reduce((a, b) => a + b) / days.length;
+      if (units == 0) return null;
+      return sum / units;
     });
   }
 
@@ -402,8 +593,8 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
       for (final item in items) {
         final age = now.difference(item.dateAdded).inDays;
         if (age >= minAgeDays) {
-          total += item.cost * item.quantity;
-          count += 1;
+          total += item.cost;
+          count += item.quantity;
         }
       }
       return AgingCapitalSummary(totalCostTimesQty: total, itemCount: count);
@@ -421,24 +612,24 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
       var b90 = const AgingBucket(label: '90d+', totalCostTimesQty: 0, itemCount: 0);
       for (final item in items) {
         final age = now.difference(item.dateAdded).inDays;
-        final dollars = item.cost * item.quantity;
+        final dollars = item.cost;
         if (age >= 90) {
           b90 = AgingBucket(
             label: b90.label,
             totalCostTimesQty: b90.totalCostTimesQty + dollars,
-            itemCount: b90.itemCount + 1,
+            itemCount: b90.itemCount + item.quantity,
           );
         } else if (age >= 60) {
           b60 = AgingBucket(
             label: b60.label,
             totalCostTimesQty: b60.totalCostTimesQty + dollars,
-            itemCount: b60.itemCount + 1,
+            itemCount: b60.itemCount + item.quantity,
           );
         } else if (age >= 30) {
           b30 = AgingBucket(
             label: b30.label,
             totalCostTimesQty: b30.totalCostTimesQty + dollars,
-            itemCount: b30.itemCount + 1,
+            itemCount: b30.itemCount + item.quantity,
           );
         }
       }
@@ -461,11 +652,11 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
       for (final item in items) {
         if (item.status == ItemStatus.active &&
             !item.dateAdded.isBefore(cutoff)) {
-          stillActive += 1;
+          stillActive += item.quantity;
         } else if (item.status == ItemStatus.sold &&
             item.dateSold != null &&
             !item.dateSold!.isBefore(cutoff)) {
-          sold += 1;
+          sold += item.quantity;
         }
       }
       final listed = stillActive + sold;
@@ -493,7 +684,10 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
   }) {
     return select(inventoryItems).watch().map((items) {
       return _monthlyInventoryCounts(
-        items.map((item) => item.dateSold).whereType<DateTime>(),
+        [
+          for (final item in items)
+            if (item.dateSold != null) (item.dateSold!, item.quantity),
+        ],
         monthCount: monthCount,
         minMonthCount: minMonthCount,
         anchor: anchor,
@@ -512,8 +706,22 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
     DateTime? anchor,
   }) {
     return select(inventoryItems).watch().map((items) {
+      // Units added per month, all statuses. Split children are excluded as
+      // rows and added back to their parent so a lot counts once at full
+      // size; orphan children count themselves (SPEC §6).
+      final ids = {for (final i in items) i.id};
+      final childUnits = <int, int>{};
+      for (final i in items) {
+        if (i.parentId != null && ids.contains(i.parentId)) {
+          childUnits[i.parentId!] = (childUnits[i.parentId!] ?? 0) + i.quantity;
+        }
+      }
       return _monthlyInventoryCounts(
-        items.map((item) => item.dateAdded),
+        [
+          for (final item in items)
+            if (item.parentId == null || !ids.contains(item.parentId))
+              (item.dateAdded, item.quantity + (childUnits[item.id] ?? 0)),
+        ],
         monthCount: monthCount,
         minMonthCount: minMonthCount,
         anchor: anchor,
@@ -522,14 +730,13 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
   }
 
   static List<MonthlyInventoryCount> _monthlyInventoryCounts(
-    Iterable<DateTime> dates, {
+    List<(DateTime, int)> dated, {
     int? monthCount,
     int minMonthCount = 6,
     DateTime? anchor,
   }) {
-    final dateList = dates.toList();
     DateTime? earliest;
-    for (final date in dateList) {
+    for (final (date, _) in dated) {
       if (earliest == null || date.isBefore(earliest)) earliest = date;
     }
     final months = _resolveMonthStarts(
@@ -542,11 +749,11 @@ class InventoryItemsDao extends DatabaseAccessor<FlipBinDatabase> with _$Invento
       for (final monthStart in months)
         MonthlyInventoryCount(
           month: monthStart,
-          count: dateList
-              .where((date) =>
-                  date.year == monthStart.year &&
-                  date.month == monthStart.month)
-              .length,
+          count: dated
+              .where((e) =>
+                  e.$1.year == monthStart.year &&
+                  e.$1.month == monthStart.month)
+              .fold<int>(0, (s, e) => s + e.$2),
         ),
     ];
   }
@@ -717,7 +924,32 @@ class FlipBinDatabase extends _$FlipBinDatabase {
   FlipBinDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            // Additive only: existing values (incl. cost) never change.
+            await m.addColumn(inventoryItems, inventoryItems.costPerItem);
+            await m.addColumn(inventoryItems, inventoryItems.parentId);
+          }
+        },
+        beforeOpen: (details) async {
+          await backfillCostPerItem();
+        },
+      );
+
+  /// Idempotent backfill (SPEC §4.2): cpi = round4(cost / max(qty,1)) where
+  /// cpi IS NULL. Never touches `cost`.
+  Future<int> backfillCostPerItem() {
+    return customUpdate(
+      'UPDATE inventory_items SET cost_per_item = '
+      'ROUND(cost * 1.0 / MAX(quantity, 1), 4) WHERE cost_per_item IS NULL',
+      updates: {inventoryItems},
+    );
+  }
 
   static QueryExecutor _openConnection() {
     return impl.openConnection();
