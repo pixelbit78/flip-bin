@@ -225,19 +225,40 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   }
 
   Future<void> _save({bool popAfter = true}) async {
-    if (_saving) return; // BUG-03 in-flight guard
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _saving = true);
-    try {
-      await _saveInner(popAfter: popAfter);
-    } finally {
-      if (mounted) setState(() => _saving = false);
+    // BUG-03/03b: lock synchronously, before any await or rebuild, and keep
+    // it locked once the save succeeded and the screen is leaving, so a tap
+    // during the pop animation can't save again. Unlock only on failure or
+    // when staying on the screen (Mark sold path).
+    if (_saving || _committedNew) return;
+    _saving = true;
+    if (!_formKey.currentState!.validate()) {
       _saving = false;
+      return;
+    }
+    setState(() {});
+    var keepLocked = false;
+    try {
+      keepLocked = await _saveInner(popAfter: popAfter);
+    } finally {
+      if (!keepLocked) {
+        _saving = false;
+        if (mounted) setState(() {});
+      }
     }
   }
 
-  Future<void> _saveInner({bool popAfter = true}) async {
+  static final ButtonStyle _stepperStyle = IconButton.styleFrom(
+    minimumSize: const Size(44, 44),
+    fixedSize: const Size(44, 44),
+    padding: EdgeInsets.zero,
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  );
 
+  /// Set once a new item was inserted: the Add form never inserts twice.
+  bool _committedNew = false;
+
+  /// Returns true when the save succeeded and the screen is leaving.
+  Future<bool> _saveInner({bool popAfter = true}) async {
     final cpi = round4(double.tryParse(_costController.text.trim()) ?? 0.0);
     final controller = ref.read(inventoryControllerProvider);
 
@@ -267,6 +288,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
               : _barcodeController.text.trim()),
         ),
       );
+      _committedNew = true;
     } else {
       final id = int.parse(widget.itemId);
       // BUG-02 guard: rebase on the latest DB row. If qty/cost changed under
@@ -278,16 +300,17 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
           (latest.quantity != base.quantity ||
               toCents(latest.cost) != toCents(base.cost) ||
               latest.status != base.status)) {
-        final userEdited = _costController.text.trim() != _initialCostText.trim() ||
-            _quantity != _initialQty;
+        final userEdited =
+            _costController.text.trim() != _initialCostText.trim() ||
+                _quantity != _initialQty;
         if (userEdited) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('This item changed (e.g. a sale). Reopen it and try again.'),
+              content: Text(
+                  'This item changed (e.g. a sale). Reopen it and try again.'),
             ));
           }
-          _saving = false;
-          return;
+          return false;
         }
         _quantity = latest.quantity;
         _status = _status == base.status ? latest.status : _status;
@@ -333,7 +356,11 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
       );
     }
 
-    if (mounted && popAfter) _leave();
+    if (mounted && popAfter) {
+      _leave();
+      return true;
+    }
+    return false;
   }
 
   Future<void> _delete() async {
@@ -378,9 +405,8 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
       if (!_formKey.currentState!.validate()) return;
       await _save(popAfter: false);
       if (!mounted) return;
-      final fresh = await ref
-          .read(inventoryControllerProvider)
-          .getById(_loaded!.id);
+      final fresh =
+          await ref.read(inventoryControllerProvider).getById(_loaded!.id);
       if (!mounted) return;
       final soldId = await runSellFlow(
           context, ref.read(inventoryControllerProvider), fresh);
@@ -439,8 +465,8 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
             onTap: alreadySold ? null : _markSold,
             borderRadius: BorderRadius.circular(10),
             child: Ink(
-              width: 40,
-              height: 40,
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
                 color: bg,
                 borderRadius: BorderRadius.circular(10),
@@ -571,6 +597,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                       Expanded(
                         child: DropdownButtonFormField<ItemType>(
                           key: ValueKey('type-$_type'),
+                          isExpanded: true,
                           initialValue: _type,
                           decoration: const InputDecoration(labelText: 'Type'),
                           items: ItemType.values
@@ -588,6 +615,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                       Expanded(
                         child: DropdownButtonFormField<ItemStatus>(
                           key: ValueKey('status-$_status'),
+                          isExpanded: true,
                           initialValue: _status,
                           decoration:
                               const InputDecoration(labelText: 'Status'),
@@ -630,7 +658,8 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                             decimal: true,
                           ),
                           inputFormatters: [
-                            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                            FilteringTextInputFormatter.allow(
+                                RegExp(r'[0-9.]')),
                           ],
                           onChanged: (_) {
                             if (_quantity > 1) setState(() {});
@@ -639,29 +668,32 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      Expanded(
-                        child: Row(
-                          children: [
-                            const Text('Qty: '),
-                            IconButton(
-                              icon: const Icon(Icons.remove_circle_outline),
-                              onPressed: _quantity > 1
-                                  ? () => setState(() => _quantity--)
-                                  : null,
-                            ),
-                            Text(
-                              '$_quantity',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.add_circle_outline),
-                              onPressed: _quantity < kMaxQty
-                                  ? () => setState(() => _quantity++)
-                                  : null,
-                            ),
-                          ],
-                        ),
+                      // Natural width: two 44px steppers + value (BUG-06).
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('Qty: '),
+                          IconButton(
+                            key: const Key('qtyMinus'),
+                            style: _stepperStyle,
+                            icon: const Icon(Icons.remove_circle_outline),
+                            onPressed: _quantity > 1
+                                ? () => setState(() => _quantity--)
+                                : null,
+                          ),
+                          Text(
+                            '$_quantity',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          IconButton(
+                            key: const Key('qtyPlus'),
+                            style: _stepperStyle,
+                            icon: const Icon(Icons.add_circle_outline),
+                            onPressed: _quantity < kMaxQty
+                                ? () => setState(() => _quantity++)
+                                : null,
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -669,7 +701,9 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                     const SizedBox(height: 16),
                     _buildReadOnlyTotal(),
                   ],
-                  if (!widget.isNew && _status == ItemStatus.sold && _loaded?.status == ItemStatus.sold) ...[
+                  if (!widget.isNew &&
+                      _status == ItemStatus.sold &&
+                      _loaded?.status == ItemStatus.sold) ...[
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.centerLeft,
