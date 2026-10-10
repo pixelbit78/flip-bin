@@ -12,8 +12,15 @@ function setCors(res) {
   res.setHeader('Cache-Control', 'public, max-age=300');
 }
 
-function json(res, status, body) {
+/** Edge-cache definitive answers for a day so repeat scans don't burn the
+ * UPCitemdb trial quota (~100/day per IP, burst-limited). */
+function cacheDefinitive(res) {
+  res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800');
+}
+
+function json(res, status, body, cache) {
   setCors(res);
+  if (cache) cacheDefinitive(res);
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(JSON.stringify(body));
@@ -76,6 +83,17 @@ module.exports = async function handler(req, res) {
       signal: AbortSignal.timeout(8000),
     });
 
+    if (upstream.status === 429) {
+      const retry = upstream.headers.get('retry-after');
+      setCors(res);
+      res.setHeader('Cache-Control', 'no-store');
+      if (retry) res.setHeader('Retry-After', retry);
+      res.statusCode = 429;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ error: 'rate_limited', barcode: upc, retryAfter: retry || null }));
+      return;
+    }
+
     if (upstream.status === 404) {
       json(res, 404, { error: 'not_found', barcode: upc });
       return;
@@ -104,14 +122,15 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    json(res, 200, {
+    const ok = {
       barcode: upc,
       productName,
       description: item.description != null ? String(item.description) : null,
       imageUrl: pickImage(item),
       category: item.category != null ? String(item.category) : null,
       source: 'UPCitemdb',
-    });
+    };
+    json(res, 200, ok, true);
   } catch (err) {
     const message = err && err.name === 'TimeoutError' ? 'upstream_timeout' : 'upstream_fetch_failed';
     json(res, 502, {
