@@ -234,4 +234,32 @@ void main() {
     await settle(t);
     await t.pump(const Duration(seconds: 1));
   });
+
+  testWidgets('BUG-02: edited cost + sale underneath -> Save refuses, '
+      'DB row unchanged', (t) async {
+    final id = await addVhs(t); // qty 10, $15.00, 1.50 ea
+    await t.pumpWidget(app(id));
+    await settle(t);
+    // User edits cost per item.
+    final cost = find.widgetWithText(TextFormField, 'Cost per item (\$)');
+    await t.enterText(cost, '2.00');
+    await t.pump();
+    // A sale happens underneath.
+    await t.runAsync(() => db.inventoryItemsDao.sellUnits(id, 1));
+    await settle(t);
+    final before = (await t.runAsync(() => db.inventoryItemsDao.getById(id)))!;
+    expect([before.quantity, before.cost, before.status],
+        [9, 13.5, ItemStatus.active]);
+    await t.tap(find.byKey(const Key('itemSaveButton')));
+    await settle(t);
+    expect(find.textContaining('This item changed'), findsOneWidget);
+    final after = (await t.runAsync(() => db.inventoryItemsDao.getById(id)))!;
+    expect([after.quantity, after.cost, after.costPerItem, after.status],
+        [before.quantity, before.cost, before.costPerItem, before.status]);
+    // Still on Edit Item, Save usable again.
+    expect(find.byKey(const Key('itemSaveButton')), findsOneWidget);
+    await t.pumpWidget(const SizedBox());
+    await settle(t);
+    await t.pump(const Duration(seconds: 1));
+  });
 }
