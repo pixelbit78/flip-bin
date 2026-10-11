@@ -143,25 +143,55 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   void _maybeRefreshFromDb(InventoryItem item) {
     final base = _loaded;
     if (base == null || _saving) return;
-    final changed = item.quantity != base.quantity ||
-        toCents(item.cost) != toCents(base.cost) ||
-        item.status != base.status;
-    if (!changed) return;
-    final userEdited = _costController.text.trim() != _initialCostText.trim() ||
-        _quantity != _initialQty;
-    if (userEdited) return; // save-time guard will refuse
+    if (item == base) return; // drift data classes compare by value
+    // Untouched form: adopt the whole fresh row (every field). Edited form:
+    // keep the user's edits; the save-time guard rebases qty/cost/status.
+    if (!_formMatches(base)) {
+      final moneyChanged = item.quantity != base.quantity ||
+          toCents(item.cost) != toCents(base.cost) ||
+          item.status != base.status;
+      final moneyEdited =
+          _costController.text.trim() != _initialCostText.trim() ||
+              _quantity != _initialQty;
+      if (!moneyChanged || moneyEdited) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _loaded = item;
+          _quantity = item.quantity;
+          _initialQty = item.quantity;
+          _costController.text = formatCpiField(item.cpi);
+          _initialCostText = _costController.text;
+          _status = item.status;
+          _dateSold = item.dateSold;
+        });
+      });
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() {
-        _loaded = item;
-        _quantity = item.quantity;
-        _initialQty = item.quantity;
-        _costController.text = formatCpiField(item.cpi);
-        _initialCostText = _costController.text;
-        _status = item.status;
-        _dateSold = item.dateSold;
+        _initialized = false;
+        _populateFromItem(item);
       });
     });
+  }
+
+  /// True when every form field still equals [r] (nothing edited).
+  bool _formMatches(InventoryItem r) {
+    String t(TextEditingController c) => c.text.trim();
+    return t(_descController) == r.itemDescription.trim() &&
+        t(_barcodeController) == (r.barcode ?? '').trim() &&
+        t(_platformController) == (r.platform ?? '').trim() &&
+        t(_saleNumberController) == (r.saleNumber ?? '').trim() &&
+        t(_commentsController) == (r.comments ?? '').trim() &&
+        t(_costController) == _initialCostText.trim() &&
+        _quantity == r.quantity &&
+        _type == r.type &&
+        _status == r.status &&
+        _dateAdded == r.dateAdded &&
+        _dateSold == r.dateSold &&
+        _imageUrl == r.imageUrl;
   }
 
   Future<void> _editCoverUrl() async {
@@ -724,39 +754,47 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                         const InputDecoration(labelText: 'Barcode (UPC)'),
                   ),
                   const SizedBox(height: 16),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Date Added'),
-                    subtitle: Text(dateFormat.format(_dateAdded)),
-                    trailing: const Icon(Icons.calendar_today),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: _dateAdded,
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                      );
-                      if (picked != null) setState(() => _dateAdded = picked);
-                    },
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Date Sold'),
-                    subtitle: Text(
-                      _dateSold != null
-                          ? dateFormat.format(_dateSold!)
-                          : 'Not Sold',
+                  // L-05: one merged, full-tile tap/semantics node.
+                  MergeSemantics(
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      minTileHeight: 56,
+                      title: const Text('Date Added'),
+                      subtitle: Text(dateFormat.format(_dateAdded)),
+                      trailing: const Icon(Icons.calendar_today),
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _dateAdded,
+                          firstDate: DateTime(2000),
+                          lastDate: DateTime(2100),
+                        );
+                        if (picked != null) setState(() => _dateAdded = picked);
+                      },
                     ),
-                    trailing: const Icon(Icons.calendar_today),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: _dateSold ?? DateTime.now(),
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                      );
-                      if (picked != null) setState(() => _dateSold = picked);
-                    },
+                  ),
+                  // L-05: one merged, full-tile tap/semantics node.
+                  MergeSemantics(
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      minTileHeight: 56,
+                      title: const Text('Date Sold'),
+                      subtitle: Text(
+                        _dateSold != null
+                            ? dateFormat.format(_dateSold!)
+                            : 'Not Sold',
+                      ),
+                      trailing: const Icon(Icons.calendar_today),
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _dateSold ?? DateTime.now(),
+                          firstDate: DateTime(2000),
+                          lastDate: DateTime(2100),
+                        );
+                        if (picked != null) setState(() => _dateSold = picked);
+                      },
+                    ),
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
