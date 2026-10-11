@@ -42,15 +42,28 @@ class StatusBadge extends StatelessWidget {
       ),
     );
 
-    if (onTap == null) return badge;
+    // Own semantics node (container) so it is never merged into the
+    // surrounding row's label/tap action.
+    if (onTap == null) {
+      return Semantics(
+        container: true,
+        label: 'Status ${status.label}',
+        excludeSemantics: true,
+        child: badge,
+      );
+    }
 
-    // L-02: keep the badge's visual size but give it a 44×44 hit area.
+    // L-02: keep the badge's visual size but give it a 44×44 hit area, and
+    // expose it as its own button so screen readers reach the sell action.
     return Semantics(
+      container: true,
       button: true,
-      label: 'Status ${status.label}',
+      label: 'Status ${status.label}, tap to mark sold',
+      onTap: onTap,
       excludeSemantics: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        excludeFromSemantics: true,
         onTap: onTap,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
