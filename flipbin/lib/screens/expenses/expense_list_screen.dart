@@ -256,10 +256,14 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '${monthFormat.format(_currentMonth)} Total',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                Flexible(
+                  child: Text(
+                    '${monthFormat.format(_currentMonth)} Total',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
+                const SizedBox(width: 8),
                 Text(
                   'Total: \$${monthTotal.toStringAsFixed(2)}',
                   style: TextStyle(
@@ -276,8 +280,9 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 48.0),
         child: FloatingActionButton(
+          tooltip: 'Add expense',
           onPressed: () => context.go('/expenses/new'),
-          child: const Icon(Icons.add),
+          child: const Icon(Icons.add, semanticLabel: 'Add expense'),
         ),
       ),
     );

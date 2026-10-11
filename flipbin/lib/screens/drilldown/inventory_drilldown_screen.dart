@@ -6,7 +6,8 @@ import 'package:flipbin/models/drilldown_query.dart';
 import 'package:flipbin/providers/inventory_provider.dart';
 import 'package:flipbin/utils/default_cover.dart';
 import 'package:flipbin/widgets/status_badge.dart';
-import 'package:flipbin/screens/inventory/inventory_list_screen.dart' show QtyPill;
+import 'package:flipbin/screens/inventory/inventory_list_screen.dart'
+    show QtyPill;
 import 'package:flipbin/widgets/type_badge.dart';
 
 /// Home-originated inventory drill-down: filter chips + cost-only list.
@@ -186,15 +187,16 @@ class _InventoryDrillDownScreenState
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     const SizedBox(height: 6),
-                                    Row(
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
                                       children: [
                                         TypeBadge(type: item.type),
-                                        const SizedBox(width: 8),
                                         StatusBadge(status: item.status),
-                                        if (item.quantity > 1) ...[
-                                          const SizedBox(width: 8),
+                                        if (item.quantity > 1)
                                           QtyPill(qty: item.quantity),
-                                        ],
                                       ],
                                     ),
                                   ],
@@ -270,30 +272,34 @@ class _RemovableFilterChip extends StatelessWidget {
       child: InkWell(
         onTap: onDeleted,
         borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
+        child: ConstrainedBox(
+          // L-01: 44px tap target.
+          constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 4),
-              Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.18),
-                  shape: BoxShape.circle,
+                const SizedBox(width: 4),
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close, size: 14, color: Colors.white),
                 ),
-                child: const Icon(Icons.close, size: 14, color: Colors.white),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

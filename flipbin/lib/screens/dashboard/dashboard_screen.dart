@@ -33,7 +33,6 @@ class DashboardScreen extends ConsumerWidget {
     context.push(q.toLocation());
   }
 
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final totalCostAsync = ref.watch(activeTotalCostTimesQtyProvider);
@@ -537,9 +536,13 @@ class _AgingRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: row,
+        child: ConstrainedBox(
+          // L-04: 44px tap target.
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: row,
+          ),
         ),
       ),
     );

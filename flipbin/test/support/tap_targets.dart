@@ -9,7 +9,10 @@ void expectAllTappablesAtLeast(WidgetTester t, {double min = 44}) {
   for (final e in find.byWidgetPredicate((w) {
     if (w is ButtonStyleButton) return w.onPressed != null || w.onLongPress != null;
     if (w is IconButton) return w.onPressed != null;
+    // Chips: the padded tap target is the RawChip's own size.
+    if (w is RawChip) return w.onPressed != null || w.onSelected != null;
     if (w is InkResponse) return w.onTap != null;
+    if (w is GestureDetector) return w.onTap != null;
     return false;
   }, skipOffstage: true).evaluate()) {
     final ro = e.renderObject;
@@ -19,10 +22,15 @@ void expectAllTappablesAtLeast(WidgetTester t, {double min = 44}) {
         e.findAncestorWidgetOfExactType<IconButton>() != null) {
       continue;
     }
-    if (e.widget is InkResponse) {
+    if (e.widget is InkResponse || e.widget is GestureDetector) {
       var inButton = false;
       e.visitAncestorElements((a) {
-        if (a.widget is ButtonStyleButton) inButton = true;
+        if (a.widget is ButtonStyleButton ||
+            a.widget is IconButton ||
+            a.widget is RawChip ||
+            a.widget is InkResponse) {
+          inButton = true;
+        }
         return !inButton;
       });
       if (inButton) continue;

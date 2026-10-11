@@ -44,10 +44,19 @@ class StatusBadge extends StatelessWidget {
 
     if (onTap == null) return badge;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: badge,
+    // L-02: keep the badge's visual size but give it a 44×44 hit area.
+    return Semantics(
+      button: true,
+      label: 'Status ${status.label}',
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
+          child: Center(widthFactor: 1, child: badge),
+        ),
+      ),
     );
   }
 }

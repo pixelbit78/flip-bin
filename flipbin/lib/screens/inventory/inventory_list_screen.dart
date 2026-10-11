@@ -15,7 +15,8 @@ class InventoryListScreen extends ConsumerStatefulWidget {
   const InventoryListScreen({super.key});
 
   @override
-  ConsumerState<InventoryListScreen> createState() => _InventoryListScreenState();
+  ConsumerState<InventoryListScreen> createState() =>
+      _InventoryListScreenState();
 }
 
 class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
@@ -55,12 +56,14 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Inventory', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('Inventory',
+            style: TextStyle(fontWeight: FontWeight.bold)),
       ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
@@ -83,14 +86,15 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
                       Tooltip(
                         message: 'Scan barcode into search',
                         child: Material(
-                          color: const Color(0xFF2196F3).withValues(alpha: 0.12),
+                          color:
+                              const Color(0xFF2196F3).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(10),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(10),
                             onTap: _openFilterScanner,
                             child: const SizedBox(
-                              width: 42,
-                              height: 42,
+                              width: 44,
+                              height: 44,
                               child: Icon(
                                 Icons.qr_code_scanner,
                                 color: Color(0xFF2196F3),
@@ -160,7 +164,8 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
                 }
 
                 return ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0, vertical: 8.0),
                   itemCount: items.length,
                   itemBuilder: (context, index) {
                     final item = items[index];
@@ -194,10 +199,13 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     const SizedBox(height: 6),
-                                    Row(
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
                                       children: [
                                         TypeBadge(type: item.type),
-                                        const SizedBox(width: 8),
                                         StatusBadge(
                                           status: item.status,
                                           onTap: item.status == ItemStatus.sold
@@ -210,10 +218,8 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
                                                     showUndo: false,
                                                   ),
                                         ),
-                                        if (item.quantity > 1) ...[
-                                          const SizedBox(width: 8),
+                                        if (item.quantity > 1)
                                           QtyPill(qty: item.quantity),
-                                        ],
                                       ],
                                     ),
                                     if ((childUnits[item.id] ?? 0) > 0) ...[
@@ -263,8 +269,9 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
+        tooltip: 'Add item',
         onPressed: () => context.go('/inventory/new'),
-        child: const Icon(Icons.add),
+        child: const Icon(Icons.add, semanticLabel: 'Add item'),
       ),
     );
   }
